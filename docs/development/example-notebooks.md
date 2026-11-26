@@ -60,11 +60,38 @@ the refit test. That test checks every notebook at once, so run it by name.
 | `test_every_notebook_has_an_internally_consistent_execution_artifact` | a code cell or an output that changed after the stamp, an error output, or non-contiguous execution counts |
 | `test_every_notebook_records_its_repository_context` | a missing or malformed recorded half of the stamp |
 | `test_every_published_figure_has_a_non_image_companion` | a figure with no printed values beside it |
-| `test_tutorial_semantics_at_documented_size` | a cell that raises offline, or a claim in `check` that no longer holds. The test skips refit cells |
+| `test_tutorial_semantics_at_documented_size` | a cell that raises offline, a claim in `check` that no longer holds, or a cell whose printed text no longer matches its stored output (below). The test skips refit cells |
 | `test_the_derived_refit_cells_are_the_reviewed_ones` | a refit cell that the callback module's `REFIT_CELLS` does not list, a listed cell that is no longer a refit cell, or a notebook callback module without `REFIT_CELLS` |
-| `test_tutorial_refits_at_documented_size` | slow tier only: a refit cell that raises offline, or a claim in `check` or `check_refits` that no longer holds |
+| `test_tutorial_refits_at_documented_size` | slow tier only: a refit cell that raises offline, a claim in `check` or `check_refits` that no longer holds, or any cell whose printed text no longer matches its stored output |
+| `test_every_notebook_was_executed_on_the_current_version` | a stamp or a `setup` version line that names another `cleverly` version. A release pull request re-executes every notebook |
 | `test_every_narrated_decimal_matches_a_stored_output` | a decimal in the prose that no stored output prints at that precision. This test also reads the TWINS notebook |
+| `test_every_narrated_decimal_reads_an_output_in_its_own_section` | a decimal that no code cell of the reading's own section prints, or a stale `NARRATION_SOURCES` entry (below). This test also reads the TWINS notebook |
+| `test_every_static_only_notebook_calls_the_current_api` | TWINS only: a `cleverly` call whose arguments the current signature refuses |
 | `test_every_static_only_notebook_keeps_its_pinned_outputs` | TWINS only: a stored output that `check_stored()` requires |
+| `test_every_notebook_passes_the_gated_reader_measures` | a gated measure of the [reader review](writing-for-readers.md#the-reader-review) that fails, such as more main-path words than the page's budget, or a page without exactly one level-two "Go deeper" heading after its `interpret` cell |
+
+The fast tier compares what each executed cell prints, and the plain text of each value it
+displays, with the cell's stored output. Figures, `stderr`, and the `cleverly` version line are
+left out. A relative difference of 1e-4 passes, since fitted values change in about the sixth
+figure from one machine to another, and so does one last-digit rounding change per cell beyond it.
+A count that changes, or a result that moves, fails.
+
+When it fails,
+re-execute the notebook and correct every reading that quotes a moved number. Do not pin a library
+to keep an old output. A cell whose in-process run cannot print what a kernel prints goes in the
+callback's `UNREPRODUCED_CELLS`, with the reason; an entry fails once the cell reproduces. A cell whose learner turns that
+machine noise into a larger change, such as a histogram gradient-boosting fit, whose float32 sums round
+with the CPU, goes in `HARDWARE_SENSITIVE_CELLS`, with the reason. Its decimals may then differ by 1% of
+their size or one last digit each, and counts must still match.
+
+A reading may quote only the code cells of its own section: from the nearest heading above it to
+the next heading of the same or a higher level, together with the code cells directly in the
+sections around it. Each lesson under "Go deeper" is its own section. The `title` and `interpret`
+cells summarize the page and may quote any code cell before "Go deeper"; a summary that quotes a
+lesson under "Go deeper" names that cell in `NARRATION_SOURCES` too. A reading that quotes another section names the
+cell in the callback's `NARRATION_SOURCES`, literal by literal, such as
+`{"assessment-heading": {"0.0114": "estimate"}}`. An entry fails when the literal leaves the
+reading, the named cell stops printing it, or the cell moves into the reading's section.
 
 The link test `tests/unit/test_documentation_links.py` also reads the markdown cells. Every relative
 link and every heading anchor in them must resolve.
@@ -79,15 +106,15 @@ three.
 
 | landmark | contents | cell ids |
 | --- | --- | --- |
-| At a glance | the question in one sentence, the answer with its interval in plain words, and the one caveat that matters most, stated with its finding. Use the printed numbers of the estimate cell | `title`, which also holds the level-one title. The title names the data situation first, then the question |
+| At a glance | the question in one sentence, the answer with its interval in plain words, and the one caveat that matters most, stated with its finding. Use the printed numbers of the main path | `title`, which also holds the level-one title. The title names the data situation first, then the question |
 | The question | the decision, who it applies to, and what is compared, in the program's words. The quantity to estimate, in one plain sentence. A causal graph only where it informs, as [drawing a causal graph](#drawing-a-causal-graph) describes | `plan` |
 | The data | the imports and the installed `cleverly` version, then what one row is, the columns, and the known answer of the simulated data | `setup`, `data` |
 | Why a simple comparison misleads | the naive difference beside the known answer, and why it is off | `association` |
 | Set up the analysis | the study description, the roles of the columns, and the conditions the answer needs. Mark each condition "the data can check this" or "this needs judgment" | `protocol`, `identify` |
 | Estimate the effect | each fit, with each setting explained in a short list | one id for each fit |
 | Check the fit | the overlap check and the model checks, read in plain words | `assessment` |
-| Try to break the result | the refutation checks | the refutation cell |
-| What if a confounder is missing? | the sensitivity analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit | `sensitivity` |
+| Try to break the result | the refutation checks. They may open "Go deeper" instead, as the word-budget paragraph below says | the refutation cell |
+| What if a confounder is missing? | the sensitivity analysis that [the sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names for the fit. It may move under "Go deeper" only on the condition the word-budget paragraph below gives | `sensitivity` |
 | What we can and can't conclude | the answer for the manager, the conditions it rests on, and the limits. Say here, once, that the page shows one simulated draw | `interpret` |
 | How we know the method works | the simulation study that checks each method, and what it does not cover, as [the method-evidence section](#how-we-know-the-method-works) describes. It may open "Go deeper" when the main path needs its words | `method-evidence` |
 | Go deeper | theory, comparisons between estimators, and the further checks that [the checks rule](#which-checks-a-page-runs) allows for this fit | the comparison cells, and `failure-mode` only when it is not the point of the page |
@@ -98,6 +125,14 @@ example is the failure mode that the [examples index](../examples/index.md) name
 such as "what happens when a model is wrong". Put it after the estimate and give it its own
 level-two landmark. A tutorial can add other landmarks, such as a second population or a cap on
 extreme weights. Give each one a heading, a code cell, and its reading.
+
+The main path, everything before "Go deeper", has a word budget that the fast tier gates (the
+[reader review](writing-for-readers.md#the-reader-review) gives the numbers). New material goes
+after "Go deeper" unless it is the point of the page. A page that would cross the budget is trimmed
+instead of given a larger one. "Try to break the result" may open "Go deeper" as a lesson, as it
+does on several pages. When trimming is not enough, "What if a confounder is missing?" may move
+there too, on one condition: the conclusion (`interpret`) says in plain words what it found and
+which conditions no check on the page covers.
 
 Keep each cell id that a callback reads, and each `text` graph fence. If content moves to another
 cell, update the callback in the same change. Keep every scientific claim of the page, in plain
@@ -267,9 +302,12 @@ of the technical reference describes each one and says which of them is a bound.
 | C-TMLE | `robustness_value()`, `omitted_confounding()`, and `simulated_confounding()` on the selecting fit. A collaborative fit other than `strategy="derivative"` refuses the bound unless the call declares `assume_consistent_mechanism=True` | a point bound under that declaration, with the declaration stated in the reading. A per-arm outcome-adaptive fit (`oat_design="per_arm"`) needs a declared `mechanism_learner=` with the declaration, because its own treatment learner reads one outcome prediction. State the learner and the assumption that it is consistent. Without the declaration, read the bound of the ordinary TMLE fit of the declared adjustment set. It does not cover the collaborative selection |
 | MSM projection | `robustness_value(estimand="ate[medium vs low]")` and its sibling on the multi-arm `ATE(reference="low")` fit, whose contrasts share the influence curves of the saturated MSM coefficients. Add the bound on the slope. `simulated_confounding()` runs on the slope; add it only under [the checks rule](#which-checks-a-page-runs) | a bound on each arm contrast. The slope bound runs on an identity-link MSM with a categorical treatment. A continuous-treatment MSM or a non-identity link refuses it, so state that limit in one sentence |
 | a fit with missing outcomes | `missingness()` and `tipping_gamma()`, `evalue()` with the missing-at-random plug-in of the outcome SD, and the omitted-variable bound | the tilt of the unobserved outcomes at which the estimate reaches its null. `simulated_confounding()` runs outcome-axis cells on any such fit. A cell that moves the treatment needs `observation_reads=`, the covariates the response mechanism reads, and refuses without it, because a mechanism that reads the arm breaks missing at random under the flip. That declaration cannot be tested, so state it in the reading |
+| a point fit with an intermediate (`ControlledDirectEffect`) | the omitted-variable bound and `evalue()`, and `simulated_confounding()` with every treatment strength at zero | the bound's limit is backed by a coverage study only for a binary outcome with a binary intermediate, two arms and at least 250 events in the smaller arm ([`ovb-limit-coverage`](../technical-reference/method-evidence/ovb-limit-coverage.md), cell O2); elsewhere it is descriptive. `evalue()` takes a bounding factor for each arm, and its confidence-limit E-value is descriptive. `simulated_confounding()` flips the intermediate and moves the outcome, and refuses a treatment strength above zero ([F15](../roadmap.md#f15-controlled-direct-effect-simulated-confounding-replay)). `marginal_bounds` is unavailable, because a controlled direct effect also needs a bound on confounding of the intermediate and the outcome ([X87](../roadmap.md#x87-marginal-sensitivity-model-bounds-that-need-a-second-sensitivity-parameter)). State each limit in one sentence |
 | longitudinal TMLE, with or without a time-to-event outcome, other than the two below | refit without one recorded covariate at a time, and print each move in standard errors. Run `simulated_confounding()` only on a fit with no time-varying covariate after the first treatment node: an uncensored end-of-study fit, or a survival or competing-risk fit, censored or not, whose treatment is one baseline decision held over every node and whose censoring mechanism is not declared. On a time-to-event fit, add `evalue(estimand=(numerator, denominator))` on two static regimens' risks at one horizon | the refits are a benchmark, not a bound. Each move is signed and specific to the dropped covariate. The E-value reads the risk ratio of the pair. It assumes censoring at random given the treatment and covariates, with the unmeasured confounder not affecting censoring, and its confidence-limit E-value is descriptive |
 | longitudinal TMLE that eliminates competing events (`eliminate=`) | refit without one recorded covariate at a time, as for other longitudinal fits | a benchmark, not a bound. `simulated_confounding()` refuses the fit ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)), and `evalue()` refuses it, because its identification also needs no unmeasured common cause of the prevented events and the outcome. State each limit in one sentence |
 | separable effects (`Separable`) | refit without one recorded covariate at a time. `evalue()` on two static regimens covers the total effect only | `simulated_confounding()` refuses the fit, because its latent would be a common cause of both events, and `evalue()` refuses a separable regimen. State each limit in one sentence |
+| parametric g-formula (`ParametricGFormulaMethod`) | refit without one recorded covariate at a time, and print each move in standard errors. Run `simulated_confounding()` only under the condition of the longitudinal TMLE row: no time-varying covariate after the first treatment node | the refits are a benchmark, not a bound. Every other `cleverly.sensitivity` entry point and the truncation curve read `unavailable` in `result.assess()`; quote that row's reason in one sentence. `model-based-over-time`'s fit records a covariate after the first offer, so its replay is refused ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)) |
+| structural nested mean model (`snmm()`, the blip model) | refit without one recorded covariate at a time, as for the parametric g-formula | a benchmark, not a bound. Every `cleverly.sensitivity` entry point reads `unavailable`: the omitted-variable bound needs a representer that no source derives for a blip fit, and the E-value needs a risk-ratio scale that a blip coefficient does not have. State each reason in one sentence |
 | a regime, or a shift whose observed and shifted doses are all declared `dose_atom` values | `omitted_confounding()` on the contrast ([X82](../roadmap.md#x82-refutation-and-sensitivity-checks-for-every-estimator) part G2c) and `simulated_confounding()` where the intervention has a known density. On a Gaussian fit that declares `q_bounds`, outcome-axis cells move the outcome on the logit scale of the bounds by default (`bounded_outcome_law=`), so read the outcome strength through `induced_outcome_association` rather than in outcome SDs | the bound reads the contrast. The surface is not a bound. A treatment-only cell, such as `ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))`, moves the estimate by misclassification of the treatment, not by confounding. Say so in the reading |
 | a continuous-dose shift | `simulated_confounding()` only | the bound refuses a continuous-dose shift. State that limit in one sentence |
 | an incremental intervention | `simulated_confounding()` only, on a point-treatment fit | the bound refuses the `ipsi` axis, because the tilt reads the treatment mechanism. On a longitudinal `IPSI` fit the surface refuses too ([F13](../roadmap.md#f13-longitudinal-simulated-confounding-replay)). State each limit in one sentence |
@@ -282,6 +320,7 @@ Run the checks below on the fit of the page as well, under the rule that follows
 | refutation | `refute()`: `placebo`, `subset`, and `random_common_cause` at the default `R`. Add `negative_control_outcome` where the data hold a pre-treatment measure | a verdict prints only where a `VERDICT_EVIDENCE` row covers the fit. Otherwise the numbers print with `passed=None`. Say in plain words whether a simulation study backs a pass or fail for this fit |
 | generated outcomes | `dummy_outcome`, `simulated_outcome`, and `plasmode` at a small `R` | a level-1 reading. The level-2 bands need `R` = 400, so run that version once as a review probe outside the notebook |
 | tilt | `missingness()` and `tipping_gamma()` | the tilt at which the estimate reaches its null |
+| weights and balance over time (longitudinal fits) | under "Go deeper", a lesson of two cells. The first prints `sensitivity.covariate_balance(result).average(over="history")`, before and after weighting, and draws `plotting.weights(result, regimens=...)` for at most three regimens, with the plotted weights printed in the same cell. The second prints `result.diagnostics.truncation_curve(bounds=...)` with each move divided by the fit's standard error, and the `kish` column of `result.diagnostics.influence()` for the final estimates | read the averaged balance, not the largest stratum, which can grow while the average falls. The feedback rows (an earlier treatment against a later covariate) need not shrink: after weighting they show the treatment's own effect on later covariates, which weighting is not meant to remove. Balance covers only the recorded covariates, so it is no evidence against a missing confounder. The cap curve shows how much an estimate leans on its largest weights, and is not a validity check. `kish` counts the equally weighted rows behind an estimate, which differs from the support report's effective sample size. A continuous treatment has no balance groups, so `covariate_balance` refuses it |
 
 ### Which checks a page runs
 
@@ -361,6 +400,13 @@ change.
 | Adaptive-propensity IPTW | randomized-pilot |
 | Adaptive TMLE for a trial with external data | trial-with-external-data |
 | Cross-fitting and CV-TMLE | cross-fitting, and every cross-fitted tutorial |
+| Conditional effects on a declared basis | conditional-effects (the EP learner of the curve, with no basis). No tutorial fits a CATE or log-CRR projection on a declared basis |
+| Targeting curves of a priority score | conditional-effects (`targeting_curve`) |
+| External scores | No tutorial fits `assess_score` |
+| Hazard targeting beyond a held baseline treatment | No tutorial fits it |
+| Collaborative TMLE of a risk curve | No tutorial fits it: collaborative-tmle fits a point treatment |
+| Drift-corrected survival TMLE | No tutorial fits it |
+| Continuous-time survival and competing risks | plots draws one fit's risk curve and its overlap figure. No tutorial reads its estimates |
 | Targeting and fitting options | randomized-pilot (`Targeting(step_bound=..., iterate="best")`). `stopping=`, `outcome_by_arm=`, `treatment_adjustment=` and greedy `patience=` are supported on their option-study rows, and `patience=` on a pre-ordered path carries the experimental label. All four stay on their reference sections |
 | Inference, diagnostics, and sensitivity | every tutorial |
 | Cluster-robust longitudinal variance (`cluster=` on `LongitudinalTreatment`) | discharge-to-readmission |
@@ -406,6 +452,11 @@ Do these steps in order. Run each command from the repository root.
    python scripts/execute_notebook.py docs/examples/<stem>.ipynb > execute.log 2>&1
    echo "exit status $?"
    ```
+
+   The kernel caps the native thread pools (OpenMP and BLAS) at one thread and runs on
+   matplotlib's bundled defaults, so a machine's own matplotlibrc (a different `figure.dpi` or
+   font) cannot change the published figures. Commit your edits first and execute from the clean
+   checkout: the stamp records whether the worktree was clean.
 
 5. Read every stored output. Write each reading from those outputs.
 6. Delete the Markdown source with `git rm docs/examples/<stem>.md`.

@@ -50,6 +50,14 @@ UNPRINTED_DECIMALS = {
 }
 
 
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "trend-reading": {"0.2657": "failure-mode"},
+    "assessment-heading": {"0.9886": "trend"},
+}
+
+
 def _log_value(text: str, pattern: str) -> str:
     """Return the first group of ``pattern`` in a committed probe log."""
     match = re.search(pattern, text)

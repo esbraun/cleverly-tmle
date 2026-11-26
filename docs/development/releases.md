@@ -60,12 +60,19 @@ series ends.
 Prepare the release in a pull request from `main`.
 
 1. Draft the notes with the [release notes template](release-notes-template.md).
-2. Change `__version__` in `src/cleverly/_version.py` to the next unused `0.2.N` value.
-3. Run every pull request check, including the package checks.
-4. Merge the reviewed pull request into `main`.
-5. Create the matching `v0.2.N` tag on the reviewed `main` commit.
-6. Push the tag, and review both publishing environments in GitHub Actions.
-7. Create the GitHub release from the tag, and paste the reviewed notes.
+2. Change `__version__` in `src/cleverly/_version.py` to the next unused `0.2.N` value, and commit.
+3. Re-execute every example notebook from that clean commit, one at a time, and commit each:
+   `python scripts/execute_notebook.py docs/examples/<stem>.ipynb`. The fast tier requires each
+   notebook's stamp to name the new version. The offline notebooks take about 30 minutes in all;
+   the TWINS notebook downloads its data and takes about an hour. If the data host is down, run
+   TWINS on another machine or wait; do not skip it. Read each changed output, and update the
+   prose that quotes a number that moved. A notebook pull request opened before the release
+   brings in `main` and re-executes its notebook before it merges.
+4. Run every pull request check, including the package checks.
+5. Merge the reviewed pull request into `main`.
+6. Create the matching `v0.2.N` tag on the reviewed `main` commit.
+7. Push the tag, and review both publishing environments in GitHub Actions.
+8. Create the GitHub release from the tag, and paste the reviewed notes.
 
 The documentation site deploys once `publish.yml` succeeds, from the tagged commit
 (`.github/workflows/pages.yml`). A merge to `main` does not redeploy it. To publish a

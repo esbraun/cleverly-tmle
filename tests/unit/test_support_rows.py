@@ -59,6 +59,9 @@ KINDS = {
     "derived",
     # Fix-5: ``variance="policy_weighted"``, licensed from ``mtp-policy-variance``.
     "wald_policy",
+    # X123 (g): the binned restricted means, licensed from their RMST cells.
+    "restricted_mean",
+    "restricted_mean_difference",
 }
 OUTCOME_KINDS = {"end_of_study", "survival", "competing", "repeated"}
 #: The options of X76 in a point key, at the values of a fit that declares none of them.
@@ -78,6 +81,9 @@ X76_POINT_ROW_OPTIONS: dict[str, dict[str, Any]] = {
     # projection-evidence measured the pooled outcome regression on these keys.
     "T49.pooled": {"outcome_by_arm": False},
     "T50.pooled": {"outcome_by_arm": False},
+    # projection-methods fits DR-TMLE and the per-arm C-TMLE with one pooled outcome regression.
+    "T49.drtmle": {"outcome_by_arm": False},
+    "T49.ctmle_oat": {"outcome_by_arm": False},
     "T53": {"outcome_by_arm": True},
     "T54": {"treatment_adjustment": True},
     "T52.scaled_var": {"stopping": "scaled_var"},

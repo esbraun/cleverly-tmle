@@ -240,13 +240,21 @@ stamping, but the unkeyed hashes do not prove that one payload produced the othe
 
 The stamp it writes has two halves. The gated half covers the notebook alone, and the fast suite
 asserts it equal. The recorded half fingerprints the repository context of the run. The fast suite
-asserts only that it is present and well formed. A library edit therefore fails no notebook check.
+asserts only that it is present and well formed, so a library edit fails no digest check.
 `tests/notebooks.py` gives the reason, and it is the reason a study manifest does not gate its
 Python module hashes either.
 
 A hash comparison cannot see a library change that moved a published number while every cell kept
-its bytes. Run `python scripts/execute_notebook.py <path> --check` to find one. The command
-re-executes the notebook, reports each cell whose printed text moved, and writes nothing.
+its bytes. The fast tier therefore compares the text each tutorial notebook's cells print with the
+text the notebook stores, and the slow tier does the same for the refit cells
+(`tests/notebook_freshness.py`). The comparison allows a relative difference of 1e-4, the machine
+noise in a fitted value, and one last-digit rounding change per cell beyond it, so
+a library release that rounds differently passes and a moved result fails. A cell listed in its
+callback's `HARDWARE_SENSITIVE_CELLS` allows 1e-2, because its learner rounds with the CPU. When it fails,
+re-execute the notebook and update the prose; never pin a library to keep an old output.
+`python scripts/execute_notebook.py <path> --check` re-executes a notebook, reports each cell
+whose printed text moved, and writes nothing. A notebook's stamp must also name the current
+package version, so the release pull request re-executes every notebook.
 
 ## Add a validation study
 

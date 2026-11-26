@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from .base import (
     Intervention,
+    NaturalCourse,
     RegimeSet,
     Rule,
     Static,
@@ -56,6 +57,7 @@ __all__ = [
     "LearnedRuleRecord",
     "LearnedRuleSplit",
     "ModifiedPolicy",
+    "NaturalCourse",
     "Piece",
     "Piecewise",
     "Policy",

@@ -2234,6 +2234,7 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
         "missing_estimator",
         "repeat_provenance",
         "optimal_rule",
+        "learned_rule_comparators",
         "learned_rule_level",
         "learned_rule_splits",
         "binary_estimator",
@@ -2386,6 +2387,11 @@ _SHAPELESS_PROBES: tuple[tuple[str, Any, str], ...] = (
         "point family, empty data",
         SimpleNamespace(assessment_family="point", data=None),
         "got SimpleNamespace",
+    ),
+    (
+        "a dose-response curve",
+        SimpleNamespace(assessment_family="dose_response"),
+        "no simulated-confounding replay of a dose-response curve",
     ),
     (
         "an undeclared family",

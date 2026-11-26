@@ -93,6 +93,7 @@ guard is a plain `TMLE`, bit for bit.
 | `g_bounds=` a fixed value | permitted, and it puts the fit outside the asymptotic half of the [bound-inactive scope](targeting.md#the-bound-inactive-scope): the argument needs a bound *sequence* going to zero, which `"auto"` supplies and a fixed bound above `ess inf g_0` does not. |
 | `q_bounds=` | **required** with `cross_fit=True` on a continuous outcome, and equal to the outcome's known support. Refused on a binary outcome, which already sits on the unit interval. |
 | `stratify_folds=` | `"none"` only, which is the default. The other two policies are refused whenever the fit draws a split. |
+| `effect_modification=` (a `ConditionalContrast` with `model=`) | the difference-scale projection on complete, unstratified data, with `reduction="univariate"` and the iterative alternation. It fits one block of reduced regressions per arm and basis term. With a declared known mechanism it keeps its interval. With an estimated mechanism and a non-empty `guard` it reports the point under `"reduced_regression_plugin"`, because the conditioning term is linear in the mechanism error and no fit can check that it vanishes. [The DR-TMLE projection](../conditional-effects.md#the-dr-tmle-projection) gives the construction, the refusals and the tests |
 
 **What the composite indicator accepts.** The composite construction takes every composition
 that both of its parents take. Each row has evidence in `tests/unit/test_composite_missing_data.py`.
@@ -105,7 +106,7 @@ that both of its parents take. Each row has evidence in `tests/unit/test_composi
 | `id=` | yes | yes |
 | `strata=` | yes, in one pooled outcome step | yes; see [baseline strata](#baseline-strata) |
 | `n_bootstrap=` | yes; a replicate resamples rows with their `Delta_A` | yes |
-| `screen_treatment=True` | yes, screened on the recorded rows | yes |
+| `screen_treatment=True` | yes, screened on the outcome over the rows whose treatment and outcome are recorded | yes |
 | `evaluation=` | not applicable | refused: the companion carries one treatment mechanism, and the composite has up to three factors |
 | `interventions=` (static and known `W`-dependent rules) | yes; the covariate is the arm covariate at the arm the rule assigns | refused, as on complete data |
 | `msm=` over the arms | yes; each coefficient projects the identified arm means | refused, as on complete data |

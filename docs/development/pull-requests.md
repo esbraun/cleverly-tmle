@@ -75,15 +75,19 @@ cannot affect a fitted result.
 | `lint` | 3.12 | `ruff check .`, and then `ruff format --check .` |
 | `typecheck` | 3.12 | `mypy` |
 | `docs` | 3.12 | `sphinx-build -W --keep-going -b html docs docs/_build/html` |
-| `tests` | 3.11, 3.12, 3.13, each split into 4 shards | `pytest -q -n auto --dist loadgroup` with `CLEVERLY_TEST_SHARD=i/N`. On 3.11 and 3.13 it adds `--ignore=tests/unit/test_method_evidence.py`. The `tests` check reports every shard together |
+| `tests` | 3.11 and 3.13 in 6 shards each, 3.12 in 8 | `pytest -q -n auto --dist loadgroup` with `CLEVERLY_TEST_SHARD=i/N`. On 3.11 and 3.13 it adds `--ignore=tests/unit/test_method_evidence.py`. The `tests` check reports every shard together |
 | `slow-tests` | 3.12 | `pytest -q -n auto --dist loadgroup -m slow`: each tutorial notebook with its refit cells |
-| `property-differential` | 3.12 | `pytest -q -n auto --dist loadgroup tests/canonical/property_differential.py`, when the change touches a study, `tests/canonical/`, `src/cleverly`, the dependency pins, or the CI files |
+| `property-differential` | 3.12, in 6 parts | `pytest -q -n auto --dist loadgroup tests/canonical/property_differential.py` with `PROPERTY_DIFFERENTIAL_PART=i/N`, when the change touches a study, `tests/canonical/`, `src/cleverly`, the dependency pins, or the CI files |
 | `minimal-install` | 3.11 | `python scripts/smoke_backend.py pandas`, and the same for `polars` |
 | `package` | 3.12 | build, strict metadata and archive checks, and two clean artifact installs |
 
 The study evidence checks run on 3.12 only. They recompute the published verdicts from committed
 files with test code, and they took about half of the 2-hour 3.12 run before it was sharded.
 A shard keeps each `xdist_group` whole (`tests/conftest.py`). Set `CLEVERLY_TEST_SHARD=i/N` to run one locally.
+3.12 has more shards because it runs those checks too. Each shard and each part prints the
+runner's memory, swap and disk before its tests, and the least headroom it had at the end. A
+runner that runs out of either dies with no log, so a shrinking margin in a job that passed is
+the warning.
 
 `nox` with no argument runs the `lint`, `typecheck`, `docs`, `tests`, and `slow` sessions, which
 mirror the first five jobs. `minimal-install` has no session, because it installs one dataframe

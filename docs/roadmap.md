@@ -87,23 +87,18 @@ different pages and run in parallel.
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X124](#x124-messages-docstrings-and-records-that-misstate-the-code) Messages, docstrings and records that misstate the code | docs | no new theory; no number moves | the shipped messages, docstrings and study records |
-| [X107](#x107-front-door-pages-getting-started-and-workflow) Front door pages: getting started and workflow | docs | no new theory | the shipped point-treatment study API |
-| [X123](#x123-public-api-gaps-the-documentation-needs) Public API gaps the documentation needs | docs | no new theory for routing; a new interval claim needs its own evidence or reads experimental | the shipped engines and typed method objects |
-| [X108](#x108-example-notebooks-shared-upkeep-word-budget-and-freshness-guards) Example notebooks: shared upkeep, word budget and freshness guards | docs | no new theory | the shipped notebooks and their callbacks |
-| [X109](#x109-user-guide-capability-map-and-configuration-reference) User guide: capability map and configuration reference | docs | no new theory | X123 for the engine-only options |
-| [X110](#x110-user-guide-intervals-assessment-sensitivity-and-refutation) User guide: intervals, assessment, sensitivity and refutation | docs | no new theory | the shipped assessment, sensitivity and refutation surface |
-| [X111](#x111-user-guide-designs-and-estimands) User guide: designs and estimands | docs | no new theory | X110 for the tutorial links |
+| [X111](#x111-user-guide-designs-and-estimands) User guide: designs and estimands | docs | no new theory | none |
 | [X112](#x112-user-guide-analyses-over-time-and-survival) User guide: analyses over time and survival | docs | no new theory | the open fix to the MTP density-ratio tail weighting, for the dose-shift section |
 | [X113](#x113-user-guide-conditional-effects-and-trials-with-external-data) User guide: conditional effects and trials with external data | docs | no new theory | the shipped conditional-effect and adaptive TMLE contracts |
 | [X115](#x115-technical-reference-shared-inference-validation-and-scope-pages) Technical reference: shared inference, validation and scope pages | docs | no new theory | the shipped inference statuses, refusals and assessment capabilities |
 | [X116](#x116-technical-reference-method-pages) Technical reference: method pages | docs | no new theory | X6 part (d) for the continuous-time bootstrap sentences |
 | [X117](#x117-technical-reference-evidence-pages-navigation-and-a-nuisance-learner-page) Technical reference: evidence pages, navigation and a nuisance-learner page | docs | no new theory | the study registry |
 | [X114](#x114-new-user-guide-pages-variable-importance-run-time-and-memory-plots) New user-guide pages: variable importance, run time and memory, plots | docs | no new theory | X125 for the variable-importance label |
-| [X118](#x118-point-treatment-example-notebooks) Point-treatment example notebooks | docs | no new theory | X108 |
-| [X119](#x119-over-time-example-notebooks) Over-time example notebooks | docs | no new theory | X108; the open MTP density-ratio fix, for the pricing notebook |
-| [X120](#x120-survival-example-notebooks) Survival example notebooks | docs | no new theory | X108; X124 for the separable method table |
-| [X121](#x121-policy-rule-and-effect-curve-example-notebooks) Policy, rule and effect-curve example notebooks | docs | no new theory | X108; X123 for the learned-rule contrast; the open MTP density-ratio fix, for the raise section |
-| [X122](#x122-new-tutorials-for-shipped-methods-that-no-example-fits) New tutorials for shipped methods that no example fits | docs | no new theory | X108; X6 part (d) for the exact-time tutorial |
+| [X118](#x118-point-treatment-example-notebooks) Point-treatment example notebooks | docs | no new theory | the X108 notebook checks, delivered |
+| [X119](#x119-over-time-example-notebooks) Over-time example notebooks | docs | no new theory | the open MTP density-ratio fix, for the pricing notebook |
+| [X120](#x120-survival-example-notebooks) Survival example notebooks | docs | no new theory | X124 for the separable method table |
+| [X121](#x121-policy-rule-and-effect-curve-example-notebooks) Policy, rule and effect-curve example notebooks | docs | no new theory | the open MTP density-ratio fix, for the raise section |
+| [X122](#x122-new-tutorials-for-shipped-methods-that-no-example-fits) New tutorials for shipped methods that no example fits | docs | no new theory | X6 part (d) for the exact-time tutorial |
 | [X125](#x125-registered-study-of-variable-importance) Registered study of variable importance | docs | a source read on multiplicity control across dependent candidate fits comes first | the shipped `variable_importance` |
 
 ### Survival and time to event
@@ -129,13 +124,12 @@ different pages and run in parallel.
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
 | [X11](#x11-learned-policy-follow-ups) Learned-policy follow-ups | 3 | natural extension for parts (f4), (i2), (j2), (j4), (n2) and part (b2) beyond two nodes; published support for part (f2b); source audit for parts (c2), (d2) and the other compositions of part (b2) | the shipped learned-rule value |
-| [P1](#p1-ep-learner) EP learner compositions | 6 | preprint support, read first-hand | the shipped EP learner and `ConditionalContrast` |
 | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) Fold-evaluated CV-TMLE with baseline strata | 6 | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md); the regime means are implemented and read experimental | the shipped fold-evaluated estimate and the shipped stratified fluctuation |
 | [X64](#x64-intervention-and-policy-declarations) Intervention and policy declarations | 6 | natural extension for parts (a) to (d); no new theory for part (e) | the shipped intervention declarations |
 | [X57](#x57-joint-intervention-axes-and-tilt-compositions) Joint intervention axes and tilt compositions | 6 | [natural extension](technical-reference/hard-stop-review.md) | the shipped single-axis fits and the MNAR tilt |
 | [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) Typed study requests for the risk-ratio tilt | 6 | natural extension | the shipped `RiskRatioTilt` fit and the shipped typed policy requests |
 | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) Continuous-dose MSM with a second mechanism | 6 | source audit | the shipped continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting |
-| [X95](#x95-dose-response-intervals-below-the-support-floor) Dose-response intervals below the support floor | 6 | no new theory for part (a), a support diagnostic that tracks the interval's error and a registered study at small bandwidths and tail doses; part (b), clustered rows, needs a few-cluster rule for the multiplier band | the shipped `DoseResponseTMLE` and its support report |
+| [X95](#x95-dose-response-intervals-below-the-support-floor) Dose-response intervals below the support floor | 6 | no new theory for part (a), a support diagnostic that tracks the interval's error and a registered study at small bandwidths and tail doses; part (b), clustered rows, needs a few-cluster rule for the multiplier band; part (e) holds the study route's refused designs and method settings | the shipped `DoseResponseTMLE` and its support report |
 | [X98](#x98-score-assessment-compositions) Score assessment compositions | 6 | natural extension for part (a), a joint band over the pairs and a registered study; no new theory for parts (b) and (c); source audit for part (d) | the shipped `assess_score` and its pooled fluctuation |
 
 ### Collaborative and doubly robust TMLE
@@ -148,7 +142,7 @@ different pages and run in parallel.
 | [X52](#x52-parametric-c-tmle-intervals) Parametric C-TMLE intervals | 6 | [natural extension](technical-reference/hard-stop-review.md) | the shipped selector path; X58 for part (b) |
 | [X53](#x53-missing-outcome-cv-tmle-variants) Missing-outcome CV-TMLE variants | 6 | [natural extension](technical-reference/hard-stop-review.md); pending source read for the incremental and tilt axes of part (d) | the shipped stacked missing-outcome contracts |
 | [X61](#x61-fold-targeting-and-fold-evaluation) Fold targeting and fold evaluation | 6 | natural extension for parts (a) to (c) | the shipped fold-specific update and fold-evaluated report |
-| [X62](#x62-other-dr-tmle-and-c-tmle-compositions) Other DR-TMLE and C-TMLE compositions | 6 | natural extension for parts (a), (c) and (d); no new theory for part (b) | the shipped `DRTMLE` and `CTMLE`; X50 part (c) and X51 part (a) for part (d) |
+| [X62](#x62-other-dr-tmle-and-c-tmle-compositions) Other DR-TMLE and C-TMLE compositions | 6 | natural extension for parts (a), (c), (d) and (h); no new theory for part (b) | the shipped `DRTMLE` and `CTMLE`; X50 part (c) and X51 part (a) for part (d) |
 
 ### Intervals and evidence for shipped estimators
 
@@ -175,7 +169,7 @@ different pages and run in parallel.
 | [X5](#x5-natural-and-interventional-mediation-effects) Natural and interventional mediation effects | 5 | published support; pending source read | target-specific identification and evidence |
 | [X2](#x2-replicate-weight-designs) Replicate-weight designs | 5 | source audit | weighted-law variance construction |
 | [X7](#x7-two-phase-and-outcome-dependent-sampling) Two-phase and outcome-dependent sampling | 5 | published support; pending source read | observed-data likelihood and influence correction |
-| [X63](#x63-missing-data-intermediates-and-designs) Missing data, intermediates and designs | 6 | natural extension for parts (a) and (b); no new theory for parts (c) and (d) | the shipped controlled direct effect and known treatment mechanism |
+| [X63](#x63-missing-data-intermediates-and-designs) Missing data, intermediates and designs | 6 | natural extension for parts (a), (b) and (e); no new theory for parts (c) and (d) | the shipped controlled direct effect and known treatment mechanism |
 
 ### Nuisance learners
 
@@ -230,7 +224,7 @@ It moved each part that an established method or a natural extension carries to 
 | Plug-in omitted-variable confidence limits | confidence limits of the plug-in $E_n[\hat\alpha^2]$ for a learned mechanism other than the admitted set: a declared known mechanism, or a `LogisticRegression` with no penalty or a fixed L2 penalty, bare or after `StandardScaler`, fitted in sample or cross-fitted | regularity | the plug-in bounds, `rv`, `max_bias`, `benchmark()` and `contour()`. The one-sided limits and `rva` open for the [admitted set](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule) and refuse for every other learner under `nu2_estimator="plugin"`. `nu2_estimator="doubly_robust"` gives them for any mechanism learner | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) |
 | Targeted bootstrap inference | full-refit bootstrap consistency with data-adaptive or cross-fitted nuisances; a row-resampling (nonparametric) targeted bootstrap for learners other than HAL | asymptotic | the in-sample point-treatment `TMLE` bootstrap publishes its percentile interval, with a data-adaptive learner too, although the registered study measured only correctly specified nuisances. A cross-fitted point bootstrap publishes its interval labelled experimental, and every `DRTMLE` and `CTMLE` bootstrap prints as a diagnostic. [X55](#x55-bootstrap-extensions) holds the extensions that published support carries | [F2](#f2-targeted-bootstrap-inference) |
 | Longitudinal sensitivity-bound estimation | (a) a sample estimate of the bounds of Tan (2025); (b) its interval; (c) an omitted-variable bound or an E-value on a longitudinal fit; (d) a censoring-node missingness tilt | (a) asymptotic; (b) regularity; (c) and (d) identification | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
-| Other refused C-TMLE and DR-TMLE compositions | C-TMLE ATT, ATC, incremental, modified treatment policies, the risk-ratio tilt, controlled direct effects, continuous doses and longitudinal functionals; DR-TMLE ATT, ATC, modified treatment policies, the risk-ratio tilt, incremental, controlled direct effects, longitudinal functionals, continuous doses, a partial guard with missing outcomes, fold targeting and fold evaluation; DR-TMLE combined with C-TMLE | regularity for the C-TMLE targets; asymptotic for the DR-TMLE targets | named pre-fit refusals. [X50](#x50-further-dr-tmle-compositions) and [X51](#x51-c-tmle-point-estimates-for-further-targets) hold the compositions that moved, and [X62](#x62-other-dr-tmle-and-c-tmle-compositions) holds the others | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
+| Other refused C-TMLE and DR-TMLE compositions | C-TMLE ATT, ATC, incremental, modified treatment policies, the risk-ratio tilt, controlled direct effects, continuous doses and longitudinal functionals; DR-TMLE ATT, ATC, modified treatment policies, the risk-ratio tilt, incremental, controlled direct effects, longitudinal functionals, continuous doses, a partial guard with missing outcomes, fold targeting and fold evaluation, and a conditional contrast's projection on the log ratio, with the bivariate reduction, or with an interval under an estimated treatment mechanism; DR-TMLE combined with C-TMLE; a C-TMLE projection by a selector path or the shared design | regularity for the C-TMLE targets; asymptotic for the DR-TMLE targets | named pre-fit refusals. [X50](#x50-further-dr-tmle-compositions) and [X51](#x51-c-tmle-point-estimates-for-further-targets) hold the compositions that moved, and [X62](#x62-other-dr-tmle-and-c-tmle-compositions) holds the others | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
 | Selector-path C-TMLE inference | inference after the shipped stopping-index selection; a fold-specific selection under `cv_evaluation=True` or `targeting_scheme="fold"` | adaptive-optimum inference | point estimates and path diagnostics. The greedy, ordered, discrete, lasso and learners paths refuse `ci`, `pvalue` and `std_error`, except a `discrete` fit whose one declared candidate is the full adjustment set and a `learners` fit with an empty declared list. [X52](#x52-parametric-c-tmle-intervals) holds one declared partial candidate with parametric learners | [F18](#f18-selector-path-c-tmle-inference) |
 | Outcome-adaptive C-TMLE generated-design inference | a flexible outcome learner; a nonparametric shared multinomial design; the cross-fitted construction; the fold average and a fold-specific update; local uniformity over the nonparametric model | asymptotic; regularity for the shared design | point estimates only, under the `generated_design_plugin` status. The per-arm study measured the diagnostic 8 to 24 percent too small ([the applied revert](technical-reference/collaborative-tmle.md#the-applied-revert)). [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) holds the per-arm cells with a parametric outcome, and [X52](#x52-parametric-c-tmle-intervals) holds the shared and composite parametric cells | [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | Other missing-outcome CV-TMLE variants | a cross-fitted `DRTMLE` with `delta=` or a missing treatment, which would need the foldwise slabs of the composite and of the randomized missing-outcome reductions | asymptotic | the in-sample composite `DRTMLE`. [X53](#x53-missing-outcome-cv-tmle-variants) holds the `TMLE` variants | [F21](#f21-other-missing-outcome-cv-tmle-variants) |
@@ -245,8 +239,9 @@ It moved each part that an established method or a natural extension carries to 
 | Other intervention and design compositions | the composite missing-treatment indicator with a controlled direct effect; an `IPSI` plan with a modified-policy or risk-ratio-tilt node; an MSM weight from a learned mechanism; automatic cumulative-bound selection for `LTMLE` | identification; regularity; adaptive-optimum inference | named pre-fit refusals. [X63](#x63-missing-data-intermediates-and-designs) and [X64](#x64-intervention-and-policy-declarations) hold the declarations that a natural extension carries | [F33](#f33-other-intervention-and-design-compositions) |
 | E-values beyond the total-population arm contrast | the ATT and ATC E-value on a binomial outcome; the E-value of a regime, policy or incremental contrast, with the derived risk ratio off the arm axis | identification | E-values of total-population arm contrasts, of a controlled direct effect, and the standardized ATT and ATC E-value on a gaussian outcome | [F34](#f34-e-values-beyond-the-total-population-arm-contrast) |
 | Unsmoothed dose-response curve | an interval for the curve $\theta(a_0) = E\{\bar Q(a_0, W)\}$ at a fixed dose of a continuous treatment, by an undersmoothed or adaptively smoothed CV-TMLE with an estimated treatment density, and a band over a continuum of doses | adaptive-optimum inference; asymptotic | `DoseResponseTMLE` reports the kernel-smoothed curve at declared bandwidths, with pointwise intervals and a band over the declared pairs | [F39](#f39-unsmoothed-dose-response-curve) |
-| Adaptive TMLE for a trial with external data | an interval for the trial effect itself rather than its working-model projection; a treatment with more than two levels; a ratio scale | adaptive-optimum inference for the interval; regularity for the other two | `AdaptiveTMLEMethod` reports the projection interval under the `working_model_projection` status, for a binary treatment on the difference scale. Every other treatment and scale refuses before any learner | [F40](#f40-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope) |
+| Adaptive TMLE for a trial with external data | an interval for the trial effect itself rather than its working-model projection; a treatment with more than two levels; a ratio scale; use of the trial's known randomization probability | adaptive-optimum inference for the interval; regularity for the next two; efficiency for the known probability | `AdaptiveTMLEMethod` reports the projection interval under the `working_model_projection` status, for a binary treatment on the difference scale. Every other treatment and scale refuses before any learner | [F40](#f40-adaptive-tmle-the-oracle-approximation-condition-and-the-underived-scope) |
 | Intervals for a constant arm cell or an estimate on its bound | an interval for a mean of a yes/no outcome whose treatment arm holds one observed outcome value in its stratum, or whose estimate lies on its bound, and for every contrast that reads it | asymptotic | the point estimate stands under the `constant_arm_cell_plugin` or `out_of_range_plugin` status, with no interval, p-value or band ([small-sample scale](technical-reference/inference.md#small-sample-scale)) | [F41](#f41-intervals-for-a-constant-arm-cell-or-an-estimate-on-its-bound) |
+| EP learner theory | an interval for the EP curve, pointwise or over a range; the EP curve with a sieve size chosen by cross-validation; a declared final learner on the curve, on either scale; the value of the optimal rule from an EP rule with a declared final learner | asymptotic; adaptive-optimum inference for the CV size and the optimal value | the EP curve reports points with no interval. A declared fixed-size sieve reads supported where `ep-cate` and `ep-crr` measured it. A CV-chosen size and a declared final learner read experimental. `T51` and `T51.optimal` label the EP rule's learned value supported with a declared sieve or learner. The optimal value with a declared final learner keeps its interval, labelled experimental | [F42](#f42-ep-learner-theory) |
 
 ## Eligibility
 
@@ -670,94 +665,6 @@ and study records that state something the code does not do. No number moves.
 
 Acceptance: each statement matches the code, with a test where a count or a list can drift.
 
-### X107. Front door pages: getting started and workflow
-
-The quickstart calls its interval a Wald interval where the fit reports the skew-widened $t$, says
-no study covers its law where the fit reads `supported`, names assumptions differently from the
-printed summary, and does not run on a core install. The workflow page narrates a dataset it
-never defines and never reaches plots, the support label, refutation, the other designs and
-methods, learner cost or provenance.
-
-- (a) Correct the stale statements on both pages and in the README lines they share.
-- (b) The path to a reader's own data: one cross-fitted call, the default learner library and its
-  cost, one spelling of `q_bounds`, the benchmark and E-value readings, and a front door that routes
-  each other analysis family to its guide and example.
-- (c) The workflow covers plots, the support label, refutation and per-check sensitivity, the
-  other design roles and designs, the other methods and when to use them, `planned_fits`, the
-  accessors and the band default, and says steps 3 to 7 hold for analyses over time.
-
-Acceptance: the documentation procedure in `CLAUDE.md`, and the reader review for each rewritten
-page.
-
-### X123. Public API gaps the documentation needs
-
-Some options ship on an engine class but the typed method objects refuse them, so a reader of the
-guides cannot use them, and one warning advises a keyword the reader's route refuses.
-
-- (a) Route `bootstrap_interval`, `variance`, `cluster_variance`, `max_memory_bytes` and, on a
-  continuous-time fit, `hazard_library`, `censoring_library`, `restricted_horizons`, `norm` and
-  `tilt` through the method objects, or refuse each with a refusal that names the engine route.
-  The sparse-influence warning then advises only what the caller's route accepts.
-- (b) The smoothed dose-response curve through `CausalStudy`, with its protocol, labels and
-  assessment.
-- (c) The structural nested mean fit on the study route, with its protocol, and a helper that
-  returns a blip effect for named feature values with its interval.
-- (d) A typed contrast of a learned rule's value against a known regime, where its interval follows
-  from the shipped influence curves; otherwise an explicit refusal that says what is missing.
-- (e) A public figure for the E-value.
-- (f) The trial's known treatment probability on the trial-with-external-data design, or a refusal
-  of the field with its reason.
-
-Acceptance: a test for each route or refusal; a new interval claim reads experimental until its
-registered study.
-
-### X108. Example notebooks: shared upkeep, word budget and freshness guards
-
-Every example notebook prints an older version, several narrate a symmetric Wald interval where the
-fit now reports the skew-widened $t$ or MOVER interval, some stored outputs no longer reproduce,
-and no check fails when they drift. Sixteen of 22 notebooks exceed the main-path word limit.
-
-- (a) Re-execute every notebook on current code and fix the sentences that name the interval.
-- (b) An install line that runs each page.
-- (c) The examples index and the contributor table of worked examples cover every page and every
-  matrix row.
-- (d) A fast-tier check that re-runs the cheap cells against their stored output, or a per-cell
-  narration check, within the CI time limit.
-- (e) The owner kept the main-path limit on 2026-11-25: a notebook over it is trimmed, and new
-  checks and analyses go after its "Go deeper" heading.
-- (f) One "check the fit" block for longitudinal pages (balance over time, weight and overlap
-  figures, the weight-cap curve, influence rows), and sensitivity-table rows for the parametric
-  g-formula, the structural nested mean fit and the controlled direct effect.
-
-Acceptance: every notebook re-executes with `--check`, and the new check fails on a deliberately
-stale stored output.
-
-### X109. User guide: capability map and configuration reference
-
-`capabilities.md` omits the whole time-to-event family and several estimand families, and
-`methods-learners.md` leaves most fields of `ModelSpec`, `Targeting`, `Inference` and `Runtime`,
-three typed methods and the collaborative TMLE strategies unexplained.
-
-- (a) A capability map: question, estimand and where to read, one row per row of the
-  implementation matrix.
-- (b) A configuration reference: each learner slot and who reads it, interval and runtime
-  settings with their defaults, every targeting and fold setting, and the options of each typed
-  method.
-- (c) The engine-only options, documented on the route X123 settles.
-
-### X110. User guide: intervals, assessment, sensitivity and refutation
-
-The results guide says to turn on a band that is on by default, states one few-cluster floor where
-the code has one per estimator family, and omits the interval-scale exceptions, the bootstrap and
-band options, four refutation tests and their arguments. At 1,433 lines it also restates contract
-text the technical reference owns.
-
-- (a) One section on intervals, the bootstrap and bands that other pages link to.
-- (b) Split the page into reading and saving results, the assessment battery, sensitivity and
-  refutation, with contract text behind links.
-- (c) The refutation tests, their arguments and the generated-outcome processes by outcome family.
-- (d) Checking a reader's own configuration with `CoverageStudy`.
-
 ### X111. User guide: designs and estimands
 
 The design guide says fold evaluation refuses strata (it runs and reads `supported`) and omits
@@ -854,7 +761,7 @@ and the plots as a whole.
 
 ### X118. Point-treatment example notebooks
 
-One part per notebook, one change each, under [X108](#x108-example-notebooks-shared-upkeep-word-budget-and-freshness-guards):
+One part per notebook, one change each, under the shared notebook checks that X108 delivered:
 `point-treatment-tmle`, `randomized-pilot`, `twins-causal-inference`, `cross-fitting`,
 `collaborative-tmle`, `survey-nonresponse`, `population-impact` and `plots`. Each corrects its stale
 claims, runs the checks and figures its scenario calls for but does not show (for example the
@@ -1113,13 +1020,15 @@ stays in [F21](#f21-other-missing-outcome-cv-tmle-variants).
 
 The [learned-rule contract](technical-reference/point-treatment-tmle.md#learned-rules) estimates one target by one
 construction. Each part below is a published follow-up outside that contract. For parts (b2),
-(c2), (d2), (f4), (j2) and (j4), the refusal of the request cites the part. No request reaches part (f2b). Each part needs its
+(c2), (c3), (c4), (d2), (f4), (j2) and (j4), the refusal of the request cites the part. No request reaches part (f2b). Each part needs its
 own contract, witnesses and registered study before it ships, as the learned-rule value did.
 
 | part | the request that the contract refuses | published source | readiness |
 | --- | --- | --- | --- |
 | (b2) learned longitudinal regimens beyond the two-node fit | `LearnedRegimen` at more than two nodes; with a survival, competing or repeated outcome, a node that is not one binary treatment, `msm=`, `SDR`, `IPSI`, another regimen beside it, `repeats` above 1, `n_folds=1`, `weights=`, `id=`, a Markov order or the one-step targeting option; a cross-validated selector as the first-node regression; a registered study estimand | van der Laan and Luedtke (2015), Sections 2 and 7, and Theorem 5 for `n_folds=1`, cover two time points. The supplement of Luedtke and van der Laan (2016), *Annals of Statistics*, read on 2026-11-04, treats two time points only and states that the general case follows along the same lines. It gives no identification result, influence function or Wald interval for more than two nodes. Luedtke and van der Laan (2016), *International Journal of Biostatistics*, Sections 2.2 and 3.2, nest the second-node rule inside each inner fold of a selector, which is not built. The compositions need their own constructions and witnesses. More than two nodes, for the value of the learned rules only, is a natural extension of the two-node result. Within a fold the learned rules are fixed, so each fold's target is the value of a fixed dynamic regime, whose sequential g-formula and influence function are those the shipped `LTMLE` uses at any number of nodes, and the two-node argument does not use the node count. The step is the package's own. It needs the Q-learning's stratified per-arm fits below the last node ($2^{K-1}$ branches at $K$ nodes, which the shipped recursion refuses), an exact witness at three nodes with a nonzero check of each node's rule, and a registered study. The value of the optimal rule at more than two nodes adds a margin and a no-tie condition at every node and is not part of the move | natural extension for more than two nodes; source audit for the other compositions |
 | (c2) a learned rule beside another parameter axis, and the simultaneous band of a learned rule with known regimes | `learned_rule=` beside `policies=`, `incremental=` or `msm=`; `simultaneous_bands()` over a known-regime value or contrast, whose default band a fit skips | another axis needs a fit whose one fluctuation solves the score equations of two axes, which no source gives. The band over a data-adaptive value, known regimes and their contrasts follows from the joint normality that part (c) uses, and it needs its own witness | source audit |
+| (c3) a contrast of two learned rules | `LearnedRuleContrast(against=...)` or `OptimalRuleContrast(against=...)` holding a second `LearnedRule` | each learned value is a data-adaptive target of its own fold rules. A contrast needs both rule families learned on the same folds, a joint fluctuation of two learned columns and a witness that the difference's curve is the difference of the two curves when both rules move with the data. No source states the joint result | natural extension |
+| (c4) a known regime against the natural course | `NaturalCourse()` beside known regimes without `learned_rule=`, in `RegimeMean`, `RegimeContrast` or a longitudinal regimen | the regime fit has no natural-course column. The contrast $\Psi_K - E[Y]$ would carry the regime curve minus $Y - \bar Y$, as the learned-rule fit does, and needs that column outside the regime fluctuation, an exact witness and a registered study. For a static arm, `PopulationAttributableRisk(reference=a)` already reports $E[Y] - E[Y^a]$ | natural extension |
 | (d2) rule learners over more than two arms | `LearnedRule(loss="blip")` or `LearnedRule(loss="weighted_classification")` on a treatment with more than two arms | Luedtke and van der Laan (2016), Sections 4.1 to 4.3, state both losses for a binary treatment. A multi-arm pseudo-outcome loss needs a source that this project has not read | source audit |
 | (f2b) the online estimator of the value of the optimal rule | no request reaches it | Luedtke and van der Laan (2016), *Annals of Statistics*, Section 5.1 and Theorem 2: an online one-step estimator whose Wald interval holds at an exceptional law. It is another estimator of the target of part (f). The 2021 correction (DOI 10.1214/20-AOS2031) repairs the proof of Lemma 6 and strengthens the step from (C6) to (C7), Theorem 7 and the sufficient conditions for (C4) and (C5) to almost-sure versions, so this part reads the paper with it | published support |
 | (f4) the relearning replay of the value of the optimal rule beside known regimes or with strata | `simulated_confounding` of a fit of `estimands=["ey_optimal_rule"]` with `interventions=` or `strata=` | each cell relearns the rule. Beside known regimes the replay would also rebuild every known regime and its contrast with the relearned rule on the perturbed table, and with strata it would report each stratum's fold-evaluated optimal value of the perturbed table. Each needs a witness that a cell equals a manual relearning refit of those values | natural extension |
@@ -1202,6 +1111,16 @@ several splits, the in-sample fit and supplied treatment probabilities beside kn
 experimental. The simultaneous band and another parameter
 axis are part (c2): the fit skips its default band and `summary()` says why, and
 `simultaneous_bands()` refuses those estimates. The bound of a contrast joins part (n2).
+
+The typed spelling of part (c) ships as `LearnedRuleContrast(against=...)` and
+`OptimalRuleContrast(against=...)`, the engine fit bit for bit (X123 (d)). The comparators widen
+to known `Stochastic` regimes and to `NaturalCourse()`, current practice, whose mean $E[Y]$ sits
+outside the regime set and the fluctuation. A stochastic regime keys the qualifier
+`known_stochastic_regimes` and the natural course the qualifier `natural_course`. The natural-course
+contrast has no conservativeness result under a misspecified outcome model with a fitted $g$. The
+study [`learned-rule-contrast-comparators`](technical-reference/method-evidence/learned-rule-contrast-comparators.md)
+passed every verdict and registered the rows `T58.combined`, `T58.stochastic` and
+`T58.natural_course`, each per report.
 
 The plug-in rule over more than two arms, part (d), now ships
 ([more than two arms](technical-reference/point-treatment-tmle.md#learned-rules)). Each fold's
@@ -1422,6 +1341,7 @@ them. A path that holds them needs its own derivation and is out of scope.
 | (c) | `msm=` over discrete arms | a fixed full-rank projection of the arm means, with a declared selection criterion |
 | (d) | a missing treatment on a selector strategy, in sample | the composite indicator reduction |
 | (e) | `id=` | a cluster as the unit with whole-cluster folds. Each point inherits the fixed-limit assumption for the selected mechanism (WP 246, Section 4) |
+| (f) | baseline strata, missing outcomes and a missing treatment on the per-arm outcome-adaptive projection of a `ConditionalContrast` | the per-arm point contract for strata and missing data, which covers the arm means, carried to each basis term of the projection. `estimators/ctmle.py` refuses it before any learner and names this item |
 
 Acceptance: a nonzero witness for each changed term; a registered point study.
 
@@ -1587,7 +1507,8 @@ refuse the other parts before any learner.
 | (d) | `NaturalCourseMean`, PAR and PAF with complete outcomes under `CTMLE` or `DRTMLE` | the $\Delta \equiv 1$ case of X50 part (c) and X51 part (a). With complete outcomes the natural-course TMLE returns the sample mean and the curve $Y - E[Y]$, as the `ey_obs` row of the [evidence map](technical-reference/evidence.md) records. C-TMLE gives points only, as X51 states |
 | (e) | baseline strata (`strata=`), and a declared missing treatment, under `CTMLE(strategy="derivative")` | one derivative fit within each stratum, as the ordinary TMLE fits its stratum estimates; a partner mechanism for the composite indicator $\Delta_A \cdot 1\{A = a\}$. `estimators/ctmle.py` and `estimators/composite.py` refuse both before any learner and name this item |
 | (f) | `SurvivalCTMLE` beyond Stitelman and van der Laan (2010): two or more causes, `eliminate=`, a `Separable` regimen, a rule, a known stochastic policy or more than two treatment levels, a strategy other than `"greedy"`, `targeting="one_step"`, changed `stopping`, `step_bound` or `iterate`, `msm=`, `node_bounds=`, `ratio_trim=`, `isotonic=True`, and `truncation_curve()` or `simulated_confounding` on its result | a cause-specific penalty; a selection over the eliminated cause's mechanism; a multinomial main-term treatment model; a selection joint across horizons for a walk or a projection; a measured replay of the selection. `longitudinal/collaborative.py` refuses each before any learner, and the two accessors when called, and names this item |
-| (g) | `SurvivalDRTMLE` beyond Díaz (2019), Section 5: an estimated treatment model with declared censoring probabilities, two or more causes, `eliminate=` or `competing_learner=`, a `Separable` regimen, a rule, a known stochastic policy, more than two treatment levels or a dose, an end-of-study or repeated outcome, `targeting="one_step"`, one guard block alone, a simultaneous band, `isotonic=True`, `msm=`, `node_bounds=`, `ratio_trim=`, observation weights, a bootstrap or repeated split, and the restricted mean survival time, `truncation_curve()` or `simulated_confounding` on its result | drift terms for each added factor or target from the same chain-rule decomposition; a retention read under each arm for declared censoring beside an estimated treatment model; the joint curve of separately targeted horizons for a band or the RMST; a measured replay of the reductions and the loop. `longitudinal/drift.py` refuses each before any learner, and the accessors when called, and names this item |
+| (g) | `SurvivalDRTMLE` beyond Díaz (2019), Section 5: an estimated treatment model with declared censoring probabilities, two or more causes, `eliminate=` or `competing_learner=`, a `Separable` regimen, a rule, a known stochastic policy, more than two treatment levels or a dose, an end-of-study or repeated outcome, `targeting="one_step"`, one guard block alone, a simultaneous band, `isotonic=True`, `msm=`, `node_bounds=`, `ratio_trim=`, observation weights, a bootstrap or repeated split, and the restricted mean survival time, `truncation_curve()` or `simulated_confounding` on its result | drift terms for each added factor or target from the same chain-rule decomposition; a retention read under each arm for declared censoring beside an estimated treatment model; the joint curve of separately targeted horizons for a band; for the RMST, an audit of the remainder of the drift correction, which regresses residuals on scalar indices of the initial fits and has not been audited for any new target; a measured replay of the reductions and the loop. `longitudinal/drift.py` refuses each before any learner, and the accessors when called, and names this item |
+| (h) | the `DRTMLE` projection of a `ConditionalContrast` with missing outcomes or a missing treatment, with `strata=`, or with the one-step update or an evaluation companion; the five held-out curve checks on a curve of a `DRTMLE` or per-arm `CTMLE` projection | per-term reduced regressions over a shipped mechanism: one block per basis term over the response or composite mechanism, one per stratum and basis term, and one scalar per arm and basis term for the one-step update and the companion. The held-out checks rebuild the TMLE pseudo-outcome, so each needs the reduced-regression equations or the per-arm outcome-adaptive design rebuilt beside it. `estimators/drtmle.py` and `effect_modification.py` refuse each before any learner and name this item |
 
 Acceptance needs each check below.
 
@@ -1614,6 +1535,7 @@ controlled direct effect.
 | (b) | a multi-valued intermediate variable | the controlled direct effect at each level $z$, through the indicator $1\{Z = z\}$. The step is an indicator reduction |
 | (c) | a fit with no covariates, which includes `baseline=()` on `LongitudinalTreatment`, `LongPanel` and `TimeToEvent` | an intercept-only nuisance design. The arm mean then reduces to the unadjusted mean. No new theory is needed. The three longitudinal layouts share one container, so one refusal in `LongitudinalData` covers them |
 | (d) | a support report of the response mechanism for the natural course with missing outcomes | a diagnostic over the fitted response probabilities. It makes no estimator claim |
+| (e) | a controlled direct effect with `strata=` on a `ConditionalContrast` projection; the EP curve of a controlled direct effect; the held-out curve checks, the score assessment and the targeting curve on a controlled direct effect projection | the controlled-direct-effect clever covariate or pseudo-outcome, with the selection $1\{Z = z\}$ and the intermediate density $q_z$, in a shipped construction: the stratified projection fluctuation, the EP debiasing regression, and the held-out pseudo-outcome. `effect_modification.py` refuses each before any learner and names this item |
 
 Acceptance needs each check below.
 
@@ -1784,7 +1706,7 @@ and the default refit cap. Any check that needs more than 20 refits is opt-in.
 | E | generated processes beyond the Gaussian ATE. Part E1 ships the Bernoulli and bounded processes, per-arm effects, multi-arm treatments, arm levels, and ratios. Part E2 ships missing outcomes, missing treatments, controlled direct effects, `ey_obs`, PAR, PAF, strata, and the clustered plasmode. Part E5 ships the measurement-error bootstrap on panels and on strata variables. Part E3 ships regimes, incremental tilts, modified treatment policies, and MSM coefficients. Part E4 ships the longitudinal plasmode of an end-of-study, repeated-outcome, survival or competing-risk panel. Risk-ratio tilts, the continuous-dose plasmode, and the DR-TMLE estimated-index witness remain | the effect of each process computed exactly, judged by the bands of A1 |
 | F | simulated common cause: point laws, the time-fixed longitudinal latent, and frozen-rule replay for learned rules | a zero-strength reproduction and a nonzero witness for each table row |
 | G | E-value and omitted-variable bound coverage, and the missingness tilt | a coverage cell for each new interval claim |
-| H | marginal sensitivity model bounds. Part H1 ships the two-arm ATE and arm means of a `TMLE` or `DRTMLE` fit with a Gaussian or binary outcome, clusters and repeats. Study SH registers the `continuous` and `binary` limit rows for the ATE of a five-fold cross-fitted `TMLE` with GLM nuisances at $n \ge 8000$, and every other limit stays descriptive. Part H2 adds multi-arm treatments under the one-against-rest model, ATT and ATC on two arms, risk and odds ratios, weights, strata, missing outcomes, and `CTMLE` fits through a refit of the full mechanism. An `AdaptiveIPTW` fit has no outcome regression, so the bounds redirect it to `TMLE` | the linear program of the model solved on a finite law, and a mutation control for each nuisance |
+| H | marginal sensitivity model bounds. Part H1 ships the two-arm ATE and arm means of a `TMLE` or `DRTMLE` fit with a Gaussian or binary outcome, clusters and repeats. Study SH registers the `continuous` and `binary` limit rows for the ATE of a five-fold cross-fitted `TMLE` with GLM nuisances at $n \ge 8000$, and every other limit stays descriptive. Part H2 adds multi-arm treatments under the one-against-rest model, ATT and ATC on two arms, risk and odds ratios, weights, strata, missing outcomes, and `CTMLE` fits through a refit of the full mechanism. An `AdaptiveIPTW` fit has no outcome regression, so the bounds redirect it to `TMLE`. The bounds of a working-model coefficient of a `ConditionalContrast` projection need the linear program solved for a coefficient of the projection rather than for a mean; `assessment.py` refuses them and names this item | the linear program of the model solved on a finite law, and a mutation control for each nuisance |
 | J | the band-rank placebo on a dose whose declared support is a function of the covariates or the history, shipped: each dose's position within its band is permuted or kernel-drawn, then mapped into the receiving unit's band. The follow-up study SJ registers `L2` rows for its cells PJ1 and LJ1, and every other banded reading stays descriptive. A stratified draw for a bound pattern that varies by row, or for an atom outside some band, is exact but not built | an exact enumeration of the point and the longitudinal placebo laws, and a mutation control for each guard |
 | I | every applicable instrument for `AdaptiveIPTW`, shipped: every point `refute` test, simulated confounding on the arm axis, and the derived risk ratio of the E-value. Each study-backed reading stays descriptive until the follow-up study SI registers its rows | an exact enumeration of the placebo law, a zero paired shift on a known mechanism, and a zero-strength reproduction |
 | K | refutation and omitted-variable and marginal bounds for a kernel-smoothed dose-response curve (`DoseResponseTMLE`). Each pair is a smoothed mean outcome at one dose, and the placebo, common-cause and subset references of `refute` are written for a contrast or an arm mean of a point treatment. The result keeps no estimator to refit | a reference value for each test at a pair, exact on a finite law, and the representer of a pair for the bounds |
@@ -1896,6 +1818,7 @@ reading of the strengths. No part makes an interval claim.
 | (d), moved to [X85](#x85-typed-study-requests-for-the-risk-ratio-tilt) | a risk-ratio tilt fit | no typed study request reports a tilt, so no tilt fit carries the backdoor identification that the replay reads. X85 adds the requests and the replay |
 | (e), shipped | a binary replay under any point estimator whose class declares `simulated_confounding_replay = True` | a refit of the stored estimator on each perturbed draw, with a zero-strength reproduction witness for each estimator. An enumeration test runs every declaring class |
 | (g), shipped | a fixed-policy replay under a declaring class | as part (e). X50 and X51 hold the DR-TMLE and C-TMLE regimes and MSMs |
+| (j) | a replay of a working-model coefficient of a `ConditionalContrast` projection | a declared reading of a coefficient of the projection under the perturbed draws, with the projection refitted on each cell. `assessment.py` and the replay refuse it and name this item |
 | (i), shipped | a binary replay of a parameter off the arm axis, and a continuous replay of a parameter off the policy axis | the replay applied to the refit of that parameter, with a declared reading for each parameter. A multi-arm incremental target swaps the declared arm pair, and each cell refits the mechanism that the odds tilt reads. A known stochastic regime on a continuous dose has no estimator, and [X64](#x64-intervention-and-policy-declarations) holds it |
 
 Acceptance: the replay at zero strength reproduces the estimate; a nonzero witness for each part.
@@ -1940,6 +1863,8 @@ Newey, Sharma and Syrgkanis (2026) gives the bias of a linear functional.
 | an MSM with a link other than `"identity"` | a bound for a coefficient that is not linear in the regression |
 | a randomized, fold-tuned, or joint policy set | the combination of the component representers |
 | a shift on a continuous dose | a representer for a fitted dose density, and a guarantee that $\hat\nu^2$ is positive |
+| a stratified projection of a `ConditionalContrast` | a representer for each stratum coefficient and each marginal coefficient |
+| a log-ratio projection coefficient | a bound for a coefficient that is not linear in the regression, as for an MSM with a link other than `"identity"` |
 
 Each contract names the representer, the $\nu^2$ estimator, and its influence curve. The evidence
 needs an exact finite-support law, as `tests/unit/test_omitted_variable_axes.py` has for the
@@ -1955,6 +1880,7 @@ or the controls, and the E-value of a regime or policy contrast.
 | --- | --- | --- |
 | (d) | the derived risk ratio after fold evaluation | the fold-evaluated ratio of X61 part (c). No new theory is needed beyond that part |
 | (g) | a benchmark that drops every covariate | an intercept-only short model. It depends on X63 part (c) |
+| (j) | the missingness tilt and `tipping_gamma` of a working-model coefficient of a `ConditionalContrast` projection | the tilt of each arm regression carried through the projection's coefficient map, with a declared reading of the tilt for a coefficient. `assessment.py` refuses both and names this item |
 
 Acceptance needs each check below.
 
@@ -1992,57 +1918,6 @@ second mechanism, and no read source defines it. A longitudinal fit is refused u
 
 Acceptance: a read source for each bound; the linear program of the joint model solved on a finite
 law; a registered coverage study for each interval.
-
-### P1. EP learner
-
-Van der Laan, Carone and Luedtke, [arXiv:2402.01972v2](https://arxiv.org/html/2402.01972v2), a
-preprint, govern this item. Parts (a) to (c) have shipped: `ConditionalContrast` with the
-projection TMLE, the EP learner of the CATE and the log conditional risk ratio, and the EP curve as
-the rule learner of the learned-rule value
-([conditional effects](technical-reference/conditional-effects.md),
-[the EP rule learner](technical-reference/point-treatment-tmle.md#learned-rules)).
-
-The projection TMLE also fits a missing treatment in sample (through the composite indicator),
-`strata=`, `repeats` above 1 and the full-refit bootstrap. The registered `projection-compositions`
-study measured these, and its support rows label them supported, except the bootstrap of a
-cross-fitted fit, which stays with [F2](#f2-targeted-bootstrap-inference). The registered
-`learned-rule-ep-declared` study measured the EP rule's interval with a declared `sieve=` (a
-fixed-size B-spline sieve) and a declared `learner=` (a shallow gradient-boosting regressor), and
-rows `T51` and `T51.optimal` label those fits supported. The value of the optimal rule with a
-declared final learner reads experimental, because no limit is claimed for a final learner.
-
-The projection of a controlled direct effect,
-`ControlledDirectEffect(intermediate=z, contrast=ConditionalContrast(..., model=basis))`, has
-shipped on both scales, and so has a declared final learner on the EP curve's log-ratio scale. The
-projection band and the external-score check each read their label from their own measured
-configurations. The registered `projection-evidence` study measured the projection of a
-controlled direct effect (stacked, cross-fitted, one outcome regression per arm), the pooled
-outcome regression and the Rademacher band on four keys, and its rows label those fits supported.
-The registered `score-assessment-compositions` study measured the score check under weights,
-clusters, missing outcomes, a pair of three arms and an ATE fit in sample, one at a time on the
-difference scale, and `SCORE_COMPOSITIONS_MEASURED` labels each of them supported alone. Other
-compositions of each read experimental.
-
-What stays here is the compositions the shipped refusals name with this item: a continuous or
-vector treatment for `ConditionalContrast`; a conditional contrast from a method other than
-`method="tmle"`; the truncation curve and the sensitivity analyses and refutations of a curve;
-`strata=` with an intermediate; the EP curve of a controlled direct effect; the score check, the
-targeting curve and the held-out curve checks on a controlled direct effect, whose pseudo-outcomes
-need the selection and the intermediate density; and scalar aggregates of an EP curve. A
-cross-fitted missing treatment is [X53](#x53-missing-outcome-cv-tmle-variants) (c).
-
-Evidence stays open too. The `hte3` comparator runs of the `ep-cate`, `ep-crr` and
-`ep-assessment` studies are pending, and the EP curve carries no interval. A cross-validated sieve
-size and a declared final learner on either scale read experimental after any study, because
-EPL's theorems cover least squares over a declared convex class, not a learner's own fit. The EP rule's interval
-under-covers at the exceptional law (coverage 0.901 at n = 2,000).
-Other losses and contrasts need their own derivations. An aggregate of an EP curve is a separate
-parameter and receives scalar inference only after its influence contribution is implemented and
-tested.
-
-Acceptance: exact score and risk checks, a mutation control for each new term, and a registered
-study for each composition that ships. The sieve can be any basis the caller declares. The
-package ships no HAL learner, and none is planned.
 
 ### X91. Survival targets across the estimators
 
@@ -2092,7 +1967,7 @@ $V = 1$ at n = 4,000 covered 0.908 at a mean Kish size of 69, with 2.9% of its f
 (`tests/studies/dose_response_pilot.csv.gz`). The registered X93 run repeats both readings
 (`tests/canonical/dose_response/pair-support.csv`): at the tail pair the unlabelled fits covered
 0.922 and the labelled fits 0.948, and the stratified pair at n = 8,000 covered 0.921 at a mean
-Kish size of 136 with an SE ratio of 0.96. This item has four parts.
+Kish size of 136 with an SE ratio of 0.96. This item has five parts.
 
 - (a) Find a support diagnostic that tracks the interval's error, label by it, and measure the
   interval near the new threshold, at small bandwidths and at tail doses, in a registered study.
@@ -2107,6 +1982,13 @@ Kish size of 136 with an SE ratio of 0.96. This item has four parts.
   clever covariate, and an atom would need a point mass in the quadrature and the band.
 - (d) Contrasts between declared dose pairs, such as the difference of the curve at two doses,
   with an interval from the pair's joint influence curve. Experimental until a registered study.
+- (e) The study route's open settings. `CausalStudy.identify(DoseResponseCurve(curve))` fits
+  `DoseResponseTMLE` on a `PointTreatment` design and refuses, before any learner, a dose given
+  over time (`LongitudinalTreatment`, `TimeToEvent` and `LongPanel`) and four method settings:
+  repeated cross-fitting (`repeats > 1`), a reused `split_plan`, the bootstrap (`n_bootstrap`,
+  `bootstrap_resampling`) and treatment screening (`screen_treatment`). Repeats need a median
+  rule for each pair and for the band. The bootstrap needs a refit of the curve per draw. Once
+  implemented, each setting reads experimental until a registered study measures it.
 
 ### X98. Score assessment compositions
 
@@ -2780,6 +2662,10 @@ controlled direct effect names this item too.
 | DR-TMLE combined with C-TMLE | asymptotic | a reduced regression conditions on the collaborative $\hat g$. The reduced-dimension correction needs $\hat g \to g_0$, which C-TMLE does not give |
 | a partial `guard` on the randomized missing-outcome DR-TMLE | asymptotic | the shipped algorithm targets the treatment, observation and outcome correction blocks jointly. No read source gives a result for a subset of the three blocks |
 | DR-TMLE with `targeting_scheme="fold"` or `cv_evaluation=True` | asymptotic | each fold's reduced regressions and alternation, and a corrected curve under fold-wise evaluation. No read source gives a fold-evaluated DR-TMLE, as F27 records for the learned-rule value |
+| a derivation of the DR-TMLE projection of a `ConditionalContrast` on the log-ratio scale | asymptotic | a log-ratio coefficient weights the arm regressions by $\mathrm{expit}(\varphi^\top\beta)$, which moves with the coefficients. Benkeser et al. (2017), Theorem 1, holds for a known weight, so the reduced regressions would regress on a target the fit changes, and no read source covers that |
+| a derivation of the bivariate reduction for the DR-TMLE projection | asymptotic | the bivariate reduction conditions on $(\bar Q, g)$. No read source says what it must condition on when each basis term weights the target |
+| an interval for the DR-TMLE projection with an estimated treatment mechanism | asymptotic | for each basis term the remainder keeps the conditioning term of the reduced regressions, which is linear in $g_n - g_0$ ([the conditioning terms are linear in one error](technical-reference/dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error)). It vanishes only under conditions that no fit can check, so the fit reports points under `reduced_regression_plugin` |
+| a derivation of the C-TMLE projection by a selector path or the shared design | regularity | a selector path chooses its treatment model by the loss of the arm means, and the shared design's vector mechanism has no derivation for a weighted target. X51 excludes a path that needs its own derivation |
 
 Ordinary-TMLE implementations do not establish the C-TMLE or DR-TMLE corrections for these
 compositions. Each pre-fit refusal names this item and an alternative that ships, in most cases a
@@ -2989,6 +2875,8 @@ reports the `working_model_projection` status. A testable form of the condition 
 | an interval for the trial effect, from a testable oracle-approximation condition | adaptive-optimum inference | a rate for the approximation error of the selected working model that the data can check, and a limit law under it. Theorem 1 assumes the rate and does not test it |
 | adaptive TMLE for a treatment with more than two levels, a continuous dose or a vector treatment | regularity | the decomposition of Lemma 2 and the working models of Sections 2 to 4 are stated for a binary treatment |
 | a ratio scale for the trial effect | regularity | the source gives no working model and no projection parameter for a ratio |
+| adaptive TMLE with sampling weights, clusters, strata, a held intermediate or a missing treatment | regularity | a weighted or clustered form of the working-model selection and of the projection the interval covers, a projection per stratum, and a held-intermediate or missing-treatment form of the decomposition. `TrialWithExternalData` refuses each role when it is declared |
+| adaptive TMLE that uses the trial's known randomization probability | efficiency | an estimator of the working-model parameter that attains the smaller influence function of the model that knows $P(A = 1 \mid W, S = 1)$. When the external rows' bias is nonzero, $D_w$ is in general not orthogonal to that model's scores, and no projection or estimator is derived here. `TrialWithExternalData(treatment_probabilities=...)` refuses |
 
 ### F41. Intervals for a constant arm cell or an estimate on its bound
 
@@ -3017,3 +2905,22 @@ no check reads it.
 | an interval for a mean whose arm cell holds one observed outcome value, and for its contrasts | asymptotic | an interval that does not rest on the influence curve of the constant arm, such as a score or exact construction for that arm combined with the TMLE of the others, with a limit law at a fixed law and a registered study. No source read gives one for a TMLE |
 | an interval for a pooled working-model or projection coefficient, or a whole-sample mean, when one modifier level or stratum holds one outcome value in an arm | asymptotic | a bound on the share of the variance such a cell leaves out before the plug-in interval loses its level, with a registered study. The check withholds only a coefficient of a saturated model that is a function of the cell |
 | an interval for an estimate on or outside its range | asymptotic | the same construction, or an interval on a scale defined at the bound, with its coverage |
+
+### F42. EP learner theory
+
+Van der Laan, Carone and Luedtke, [arXiv:2402.01972v2](https://arxiv.org/html/2402.01972v2), a
+preprint read first-hand, define the EP learner (EPL below). `ConditionalContrast` fits the EP
+curve of the CATE and of the log conditional risk ratio, and the EP curve is the rule learner of
+the learned-rule value ([conditional effects](technical-reference/conditional-effects.md),
+[the EP rule learner](technical-reference/point-treatment-tmle.md#learned-rules)). This item keeps
+the claims that need a theorem EPL does not give.
+
+| kept claim | kind | missing argument |
+| --- | --- | --- |
+| an interval for the EP curve | asymptotic | EPL Section 5 proves rates and the efficiency of the risk, not a limit law for the curve. A pointwise or uniform interval for a sieve-debiased curve needs a limit theorem at a growing $k(n)$ |
+| the CV-chosen sieve size | adaptive-optimum inference | EPL Theorems 4 and 5 hold for a deterministic $k(n)$. Section 5.1 states the oracle property of Algorithm 4 without proof ("it can be shown") |
+| a declared final learner on the curve | asymptotic | the theorems need empirical risk minimization over a declared convex class (Section 7.1). A greedy learner is outside them, and the package cannot check the class |
+| the optimal-rule value from an EP rule with a declared final learner | adaptive-optimum inference | the fold rules must converge to a fixed rule (C3), and no limit is claimed for a final learner's rules. [F27](#f27-learned-policy-value-outside-the-published-conditions) keeps the exceptional law |
+
+Acceptance: a published theorem for the claim, read first-hand; then the exact checks and a
+registered study of the configuration it covers. A comparator never moves a claim out of this item.

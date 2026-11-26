@@ -227,7 +227,8 @@ def encode_vector_treatment(
     what : str
         What the refusals call the treatment.
     remedy : str or None
-        What to suggest when the tuples exceed :data:`MAX_TREATMENT_LEVELS`.
+        What to suggest when the tuples exceed :data:`MAX_TREATMENT_LEVELS`.  ``None``
+        suggests :data:`VECTOR_REMEDY`, since a vector refuses ``treatment_kind=``.
 
     Returns
     -------
@@ -248,7 +249,7 @@ def encode_vector_treatment(
         raise DataError(
             f"{what} {name!r} takes {len(levels)} distinct tuples, more than the "
             f"{MAX_TREATMENT_LEVELS} levels a categorical node accepts. "
-            + (CONTINUOUS_REMEDY if remedy is None else remedy)
+            + (VECTOR_REMEDY if remedy is None else remedy)
         )
     if len(levels) < 2:
         raise DataError(f"{what} {name!r} takes a single tuple {levels!r}")
@@ -386,6 +387,16 @@ def arm_indicators(codes: np.ndarray, n_levels: int) -> FloatArray:
     # ``NaN`` code is already a ``NaN`` row there.
     block[~np.isfinite(c)] = np.nan
     return block
+
+
+#: What to suggest when the tuples of a point vector treatment exceed the level limit.  A
+#: vector refuses ``treatment_kind=``, so this names what a vector accepts instead.
+VECTOR_REMEDY = (
+    "Collapse the columns' levels into fewer combinations, or, if a column holds a dose, name "
+    "it in continuous_treatment=[...] and fit policies of JointPolicy(...) declarations: "
+    "ModifiedTreatmentPolicy or ModifiedTreatmentPolicyEffect on a study, "
+    "TMLE(policies=[...]) on CausalData."
+)
 
 
 #: What to suggest when an arm-coded column has more levels than the estimator accepts and

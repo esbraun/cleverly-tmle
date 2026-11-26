@@ -27,6 +27,9 @@ _PROBE = "reviews/notebook-review/probes/schedules-and-intensity"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "plan: 0.4": "the odds of an example patient, a 20% chance over a 50% chance",
+    "plan: 0.8": "the example patient's odds of 0.4, doubled",
+    "failure-reading: 0.97": f"mean SE over the SD, together minus added up, 400 draws: {_PROBE}/sweep.log",
     "1.03": f"mean SE over the SD, medium and high doubled, 400 draws: {_PROBE}/sweep.log",
     "0.99": f"mean SE over the SD, high doubled, 400 draws: {_PROBE}/sweep.log",
     "1.04": f"mean SE over the SD, more navigator time, 400 draws: {_PROBE}/sweep.log",
@@ -35,6 +38,13 @@ UNPRINTED_DECIMALS = {
     "7.5": "the both-raises estimate +0.0747 in percentage points",
     "6.2": "the lower limit +0.0625 of the both-raises interval in percentage points",
     "4.6": "the printed movement -4.6 standard errors, read as a size without its sign",
+}
+
+
+#: Decimals a reading derives from a printed number: by "cell: literal", the code cell, the
+#: printed text, and the derivation (tests.unit.tutorial_semantics.derived_mismatches).
+DERIVED_DECIMALS = {
+    "sensitivity-reading: 0.2": ("sensitivity", "-0.2", "magnitude"),
 }
 
 _STRATEGY_FIELDS = {

@@ -37,8 +37,10 @@ result = study.estimate(
 ```
 
 The resolved regimen matrix is shared by nuisance fitting, follower masks, targeting, and report
-keys. A regimen cannot look ahead or change interpretation between stages. An empirically learned
-policy needs inference for the policy-learning step and is outside this estimator's contract.
+keys. A regimen cannot look ahead or change interpretation between stages. A rule estimated from
+the same sample is not a fixed rule, because its inference must account for the learning step; fit
+it as a learned plan, `LearnedRegimen`, which [Declare a dynamic rule](#declare-a-dynamic-rule)
+describes.
 
 With `n_folds > 1`, each outer training fold runs an untargeted backward regression sequence. One
 pooled fluctuation per node then targets the out-of-fold predictions over every follower. The fit
@@ -263,8 +265,8 @@ coarser decision times before you read it.
 
 Long panels, many regimens and parallel workers also need memory. Before it fits any model,
 `LTMLE`, `SDR` or `IPSI` estimates how much memory the whole fit will need and stops with an error
-if that is more than the memory the machine has free. Pass `max_memory_bytes=` to set the limit
-yourself, higher or lower. Where the system does not report its free memory, as on macOS, nothing
+if that is more than the memory the machine has free. Pass `max_memory_bytes=` to the estimator,
+or to `estimate()` on a study, to set the limit yourself, higher or lower. Where the system does not report its free memory, as on macOS, nothing
 is checked unless you pass it. The estimate counts the arrays the package holds with simple
 regression learners, so a fit that passes the check can still run out of memory with heavier
 learners. [Memory](../technical-reference/longitudinal-tmle.md#memory) gives the details.
@@ -423,7 +425,8 @@ help there. On the five-period price plan of the pricing study, the BCa interval
 to 92% of the time, no better than the Wald interval
 ([measured here](../technical-reference/longitudinal-tmle.md#the-interval-under-heavy-cumulative-density-ratios)).
 
-Pass `variance="policy_weighted"` instead, with `n_folds=1` and `simultaneous=False`. The fit
+Pass `variance="policy_weighted"` instead, with `n_folds=1` (`cross_fit=False` on a study) and
+`simultaneous=False`. The fit
 weights each row by its density ratio: how much more likely the policy makes that row's dose than
 the observed treatment pattern does. The option also works out the standard error from every row
 at the dose the policy would set, and reports the larger of that and the usual one. The interval is
@@ -448,8 +451,9 @@ The long-horizon studies gate the BCa interval at $n$ from 4,000 to 128,000, and
 each row lists its sizes. At three and four decisions, BCa is `supported` for static and dynamic
 plans only. A known stochastic policy at those decisions reads `experimental`.
 
-Pass these options to `LTMLE` or `SDR`. The `CausalStudy.estimate` route does not accept
-`bootstrap_interval`.
+`LTMLE` and `SDR` take each of these options, and `IPSI` takes all of them except `variance`.
+`CausalStudy.estimate()` takes the same keywords and passes them to its estimator, with
+`cross_fit=False` in place of `n_folds=1`.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -1060,7 +1064,7 @@ The "Longitudinal refutation" part of
 every test.
 
 `result.sensitivity.simulated_confounding()` covers panels with no covariate measured after
-the first node, as [Sensitivity analysis](results-assessment.md#sensitivity-analysis) shows. An
+the first node, as [Sensitivity analysis](sensitivity.md) shows. An
 end-of-study outcome must be uncensored. A censored `TimeToEvent` fit is covered too, as
 [Check sensitivity to a missing confounder](survival.md#check-sensitivity-to-a-missing-confounder) describes.
 
@@ -1089,7 +1093,7 @@ with the same minor version, for example 3.13 for an artifact that 3.13 wrote.
 saves a lambda rule, a closure density, and an `each_node` rule from `__main__`. It loads them in
 a new interpreter and compares the assignments and the density.
 
-[Persistence and replayability](results-assessment.md#persistence-and-replayability) states the
+[What a loaded result can redo](results-assessment.md#what-a-loaded-result-can-redo) states the
 shared contract for every result, including the assessment cache and the capability rows that a
 restored artifact refuses. `tests/unit/test_serialization.py`'s
 `test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment` checks the round trip

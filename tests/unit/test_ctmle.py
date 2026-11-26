@@ -169,14 +169,14 @@ FULL_CANDIDATE_CASES: tuple[FullCandidateCase, ...] = (
         "binary",
         _W3,
         {**_IN_SAMPLE, "estimands": ("rr",), "n_bootstrap": 3, "random_state": 7},
-        ctmle={"ctmle_estimand": "rr"},
+        ctmle={"selection_estimand": "rr"},
     ),
     FullCandidateCase(
         "multi_arm_means",
         "multi_arm",
         _W3,
         {**_IN_SAMPLE, "estimands": ("ey",), "simultaneous": True, "random_state": 3},
-        ctmle={"ctmle_estimand": "ey"},
+        ctmle={"selection_estimand": "ey"},
         band=True,
     ),
     FullCandidateCase(
@@ -184,7 +184,7 @@ FULL_CANDIDATE_CASES: tuple[FullCandidateCase, ...] = (
         "multi_arm",
         _W3,
         {**_CROSS_FIT, "estimands": ("or",), "reference": "low"},
-        ctmle={"ctmle_estimand": "or"},
+        ctmle={"selection_estimand": "or"},
     ),
     FullCandidateCase(
         "missing_outcome",
@@ -1375,7 +1375,7 @@ class TestValidation:
             ),
             ({"cv_evaluation": True}, "canonical CV-TMLE selection"),
             ({"targeting_scheme": "fold"}, "published pooled"),
-            ({"ctmle_estimand": "att"}, "ctmle_estimand must be one of"),
+            ({"selection_estimand": "att"}, "selection_estimand must be one of"),
         ],
     )
     def test_bad_settings_are_rejected_at_construction(
@@ -1395,7 +1395,7 @@ class TestValidation:
             CTMLE(**CTMLE_KWARGS).fit(frame, outcome="Y", treatment="A", intermediate="Z")
 
     def test_the_target_estimand_must_be_reported(self, instrument_frame) -> None:
-        estimator = CTMLE(**{**FAST_KWARGS, "estimands": ("ey1",), "ctmle_estimand": "ate"})
+        estimator = CTMLE(**{**FAST_KWARGS, "estimands": ("ey1",), "selection_estimand": "ate"})
         with pytest.raises(ValueError, match="not among the requested estimands"):
             estimator.fit(instrument_frame, outcome="Y", treatment="A").single()
 
@@ -1445,7 +1445,7 @@ class TestTheRecordedRiskMayRiseWhileTheLossMayNot:
                 selection_folds=3,
                 selection_inner_folds=2,
                 estimands=("ate",),
-                ctmle_estimand="ate",
+                selection_estimand="ate",
             )
             .fit(frame, outcome="Y", treatment="A", covariates=covariates)
             .single()
@@ -1532,7 +1532,7 @@ class TestTheWorkingMechanismDiagnosticMissesTheExactVariance:
                 selection_folds=3,
                 selection_inner_folds=2,
                 estimands=("ate",),
-                ctmle_estimand="ate",
+                selection_estimand="ate",
                 simultaneous=False,
                 random_state=0,
             )

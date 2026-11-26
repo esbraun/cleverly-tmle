@@ -1323,3 +1323,19 @@ def test_the_summary_prints_the_condition_and_the_bands() -> None:
     assert summary.table("Simultaneous 95% bands").rows
     assert "linear structural nested mean model" in summary.note("structural_model").text
     assert warnings is not None
+
+
+def test_simulated_confounding_refuses_with_the_row_the_facade_declares() -> None:
+    """The free function and the capability row give one refusal, not a package defect."""
+    from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
+
+    result = snmm(_simulated(300), regimens=REGIMENS, n_folds=1, **GLMS, **SIM)
+    (row,) = (
+        row for row in result.sensitivity.capabilities if row.operation == "simulated_confounding"
+    )
+    assert not row.available and row.refusal is not None
+    grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+    with pytest.raises(CapabilityError) as refusal:
+        simulated_confounding(result, grid=grid)
+    assert str(refusal.value) == row.refusal.message()
+    assert "package defect" not in str(refusal.value)

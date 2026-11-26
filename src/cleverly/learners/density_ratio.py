@@ -47,6 +47,7 @@ from ..exceptions import DataError
 from ..utils.parallel import map_parallel
 from ._fitting import fit_learner, predict_mean
 from .crossfit import Folds
+from .screeners import learner_for_rows
 
 __all__ = ["classifier_ratio", "omits_policy_steps"]
 
@@ -206,7 +207,10 @@ def classifier_ratio(
         target = np.concatenate([np.full(keep.size, label) for label, _, _ in stacked])
         weight = np.concatenate([w[keep] * share for _, share, _ in stacked])
         unit = np.concatenate([units[keep] for _ in stacked])
-        model = fit_learner(learner, design, target, weight, groups=unit, warn_unweighted=False)
+        # A screened classifier keeps its training units' covariates, which close the
+        # stacked design, and every treatment column.
+        screened = learner_for_rows(learner, keep, design.shape[1], covariates_last=True)
+        model = fit_learner(screened, design, target, weight, groups=unit, warn_unweighted=False)
         return _Fitted(model, fold, keep, retained)
 
     def ratio_at(fitted: _Fitted, rows: IntArray) -> list[FloatArray]:

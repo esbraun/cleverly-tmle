@@ -87,6 +87,7 @@ from ..utils.memory import available_memory
 from ..utils.parallel import map_parallel, resolve_n_jobs
 from ._fitting import fit_learner, predict_mean
 from .crossfit import Folds
+from .screeners import learner_for_rows
 from .super_learner import SuperLearnerDiagnostics
 
 __all__ = [
@@ -2102,7 +2103,9 @@ def fit_conditional_density(
         sparse = _sparse_route(learner, records, w.shape[1], n_hazards)
         design, target, source = _long_expansion(w[rows], bins[rows], n_hazards, index_only, sparse)
         return fit_learner(
-            learner,
+            # A screened treatment learner keeps its training units' covariates and every
+            # bin column; the covariates lead the hazard design.
+            learner_for_rows(learner, rows, design.shape[1]),
             design,
             target,
             sample_weight[rows][source],

@@ -25,6 +25,7 @@ from cleverly import (
     CrossFitting,
     DataError,
     MethodConfigurationError,
+    ModelSpec,
     OddsRatio,
     PointTreatment,
     RiskRatio,
@@ -34,6 +35,7 @@ from cleverly import (
 from cleverly._refusal import RefusalReason
 from cleverly.data.causal_data import CausalData
 from cleverly.methods import ATMLE_FIELDS
+from cleverly.survival import CoxHazard
 
 GROUPS = ("models", "cross_fitting", "targeting", "inference", "runtime")
 
@@ -106,11 +108,141 @@ def test_a_vector_treatment_is_refused_at_declaration() -> None:
 
 
 @pytest.mark.parametrize(
-    "field", ["weights", "cluster", "strata", "intermediate", "treatment_missingness"]
+    "field",
+    [
+        "weights",
+        "cluster",
+        "strata",
+        "intermediate",
+        "treatment_missingness",
+        "treatment_probabilities",
+    ],
 )
-def test_the_design_takes_no_unsupported_role(field: str) -> None:
+def test_an_unsupported_role_is_refused_with_its_record(field: str) -> None:
+    """TR-S2: each role the pooled design has no adaptive form for raises a typed refusal
+    with its reason, before any data is read, and the default design passes."""
+    from cleverly.study import TRIAL_ROLE_REFUSALS
+
+    records = dict(TRIAL_ROLE_REFUSALS)
+    value: Any = {"strata": ("W",), "treatment_probabilities": {0: "W", 1: "W"}}.get(field, "W")
+    with pytest.raises(CapabilityError) as caught:
+        _design(**{field: value})
+    assert caught.value.refusal == records[field]
+    assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+    assert caught.value.refusal.roadmap == "F40"
+    assert f"PointTreatment({field}=...)" in (caught.value.refusal.alternative or "")
+    assert getattr(_design(), field) in (None, ())
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("weights", np.ones(4)),
+        ("weights", 0),
+        ("weights", ""),
+        ("strata", ["W"]),
+        ("strata", None),
+        ("strata", 3),
+        ("cluster", {}),
+    ],
+)
+def test_any_value_but_the_default_is_refused(field: str, value: Any) -> None:
+    """An array would raise on its truth value, and a falsy value would pass a truth test."""
+    from cleverly.study import TRIAL_ROLE_REFUSALS
+
+    with pytest.raises(CapabilityError) as caught:
+        _design(**{field: value})
+    assert caught.value.refusal == dict(TRIAL_ROLE_REFUSALS)[field]
+
+
+def test_an_empty_strata_list_is_the_default() -> None:
+    """A list equal to the default tuple declares nothing, so the design is the default's."""
+    assert _design(strata=[]) == _design()
+
+
+def test_every_refused_role_is_a_point_treatment_role() -> None:
+    """The alternative sends the reader to PointTreatment, so each role must exist there."""
+    from cleverly import PointTreatment
+    from cleverly.study import TRIAL_ROLE_REFUSALS
+
+    point = {item.name for item in dataclasses.fields(PointTreatment)}
+    assert {role for role, _ in TRIAL_ROLE_REFUSALS} <= point
+
+
+@pytest.mark.parametrize(
+    "probabilities",
+    [
+        {0: "W", 1: "W"},
+        ((0, "W"), (1, "W")),
+        0.5,
+        0,
+        {},
+        np.full(120, 0.5),
+    ],
+    ids=["mapping", "pairs", "scalar", "zero", "empty-mapping", "array"],
+)
+def test_a_known_trial_probability_is_refused_in_any_form(
+    no_engine: None, probabilities: Any
+) -> None:
+    """The pooled fit estimates P(A = 1 | W) and P(S = 1 | W, A), which a known trial
+    probability does not fix: every non-None form is refused before it is read."""
+    with pytest.raises(CapabilityError, match="fixes neither") as caught:
+        CausalStudy(_frame(), design=_design(treatment_probabilities=probabilities))
+    refusal = caught.value.refusal
+    assert refusal is not None
+    assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+    assert refusal.roadmap == "F40"
+    assert "PointTreatment(treatment_probabilities=...)" in (refusal.alternative or "")
+
+
+def test_the_refused_roles_are_checked_first_and_in_table_order() -> None:
+    """A refused role wins over the empty-adjustment DataError, and two refused roles
+    always raise the first in TRIAL_ROLE_REFUSALS, whatever order the call names them."""
+    from cleverly.study import TRIAL_ROLE_REFUSALS
+
+    records = dict(TRIAL_ROLE_REFUSALS)
+    with pytest.raises(CapabilityError) as caught:
+        _design(adjustment=(), treatment_probabilities={0: "W", 1: "W"})
+    assert caught.value.refusal == records["treatment_probabilities"]
+    with pytest.raises(DataError, match="non-empty adjustment"):
+        _design(adjustment=())
+    with pytest.raises(CapabilityError) as caught:
+        _design(treatment_probabilities={0: "W", 1: "W"}, weights="W")
+    assert caught.value.refusal == records["weights"]
+
+
+def test_an_explicit_none_probability_is_the_default_design() -> None:
+    """treatment_probabilities=None changes nothing: the designs compare equal, survive
+    dataclasses.replace, and fit to the same estimate."""
+    default = _design()
+    explicit = _design(treatment_probabilities=None)
+    assert default == explicit
+    assert dataclasses.replace(explicit) == default
+    assert dataclasses.replace(default, treatment_probabilities=None) == default
+    method = AdaptiveTMLEMethod(
+        form="pooled",
+        models=ModelSpec(
+            outcome_learner=LinearRegression(), treatment_learner=LogisticRegression()
+        ),
+        cross_fitting=CrossFitting(enabled=False),
+    ).with_overrides(random_state=7)
+    estimates = [
+        CausalStudy(_frame(), design=design)
+        .identify(TrialATE(population="trial"))
+        .estimate(method=method)
+        .estimate
+        for design in (default, explicit)
+    ]
+    assert estimates[0].psi == estimates[1].psi
+    assert estimates[0].variance == estimates[1].variance
+    np.testing.assert_array_equal(estimates[0].influence_curve, estimates[1].influence_curve)
+
+
+@pytest.mark.parametrize("field", ["mechanism_law", "treatment_adjustment"])
+def test_the_known_mechanism_companions_are_not_fields(field: str) -> None:
+    """Without treatment_probabilities these PointTreatment roles mean nothing here."""
     with pytest.raises(TypeError):
-        _design(**{field: "W"})
+        _design(**{field: "target" if field == "mechanism_law" else ("W",)})
 
 
 def test_repeated_splits_are_refused() -> None:
@@ -237,6 +369,11 @@ _OTHER: dict[tuple[str, str], Any] = {
     ("targeting", "node_bounds"): {1: (0.05, 0.95)},
     ("inference", "n_multiplier"): 1000,
     ("inference", "simultaneous"): True,
+    ("models", "hazard_library"): (CoxHazard("main"),),
+    ("models", "censoring_library"): (CoxHazard("main"),),
+    ("targeting", "norm"): "euclidean",
+    ("inference", "variance"): "policy_weighted",
+    ("runtime", "max_memory_bytes"): 2**30,
 }
 
 
@@ -279,6 +416,9 @@ def test_every_field_off_the_allowlist_is_refused(group: str, name: str) -> None
     if (group, name) == ("targeting", "step_search"):
         # The group itself ties step_search to a declared step_bound.
         changes["step_bound"] = 0.5
+    if (group, name) == ("inference", "bootstrap_interval"):
+        # The group itself ties a BCa interval to a declared bootstrap.
+        changes["n_bootstrap"] = 5
     with pytest.raises(MethodConfigurationError) as error:
         # CrossFitting refuses a stratified split itself, with the package's refusal.
         AdaptiveTMLEMethod(**{group: dataclasses.replace(value, **changes)})
@@ -288,6 +428,9 @@ def test_every_field_off_the_allowlist_is_refused(group: str, name: str) -> None
         assert "stratify_folds" in str(error.value)
     elif (group, name) == ("targeting", "step_search"):
         assert "targeting.step_bound does not apply" in str(error.value)
+    elif (group, name) == ("inference", "bootstrap_interval"):
+        # The allow-list names the first changed inference field.
+        assert "inference.n_bootstrap does not apply" in str(error.value)
     else:
         assert f"{group}.{name} does not apply" in str(error.value)
         if (group, name) in {("runtime", "n_jobs"), ("inference", "n_bootstrap")}:

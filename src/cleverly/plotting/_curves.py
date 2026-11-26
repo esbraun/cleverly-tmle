@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from ..exceptions import CapabilityError
 from . import _core, _truth
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -1446,7 +1447,14 @@ def _restricted(
     horizons: list[Any] = (
         list(range(2, n_times + 2)) if grid is None else [float(value) for value in grid[1:]]
     )
-    found = _regimen_order(result)
+    # A contrast result holds no levels, and its stored restricted means name the regimens.
+    stored = [
+        str(label)
+        for key in getattr(result, "restricted_index", {}).values()
+        for label in key[:2]
+        if label is not None
+    ]
+    found = list(dict.fromkeys([*_regimen_order(result), *stored]))
     chosen = found if regimens is None else list(regimens)
     unknown = [name for name in chosen if name not in found]
     if unknown:
@@ -1462,35 +1470,63 @@ def _restricted(
     versus = [name for name in chosen if name != reference] if reference in chosen else []
     compute = result.rmst if measure == "rmst" else result.rmtl
     extra: dict[str, Any] = {} if measure == "rmst" else {"cause": cause}
-    levels = {name: [compute(name, h, **extra) for h in horizons] for name in chosen}
-    contrasts = {
-        name: [compute(name, h, versus=reference, **extra) for h in horizons] for name in versus
-    }
+    failures: list[Exception] = []
+
+    def series(name: str, against: str | None) -> list[tuple[float, Any]]:
+        """Each restriction time's estimate: the stored one, else the sum of the risks.
+
+        A time whose risks the result does not hold (a study result with declared
+        ``horizons=``, or a contrast result's levels) is left out, so the stored restricted
+        means are drawn alone there.  Only those two refusals skip a time; any other error
+        propagates rather than thinning the curve without a word.
+        """
+        drawn = []
+        for h in horizons:
+            try:
+                drawn.append((float(h), compute(name, h, versus=against, **extra)))
+            except CapabilityError as error:
+                if "holds no risk curve" not in str(error):
+                    raise
+                failures.append(error)
+            except ValueError as error:
+                if type(error) is not ValueError or "needs the risk at every horizon" not in str(
+                    error
+                ):
+                    raise
+                failures.append(error)
+        return drawn
+
+    levels = {name: series(name, None) for name in chosen}
+    levels = {name: points for name, points in levels.items() if points}
+    contrasts = {name: series(name, reference) for name in versus}
+    contrasts = {name: points for name, points in contrasts.items() if points}
+    if not levels and not contrasts:
+        raise failures[0]
     name_of = (lambda s: str(labels.get(s, s))) if labels else str
     unit = f" ({units})" if units else ""
     word = "survival time" if measure == "rmst" else "time lost"
-    heights = [3.4] + ([1.7] if contrasts else [])
+    heights = ([3.4] if levels else []) + ([1.7 if levels else 3.4] if contrasts else [])
     fig, panels = _core.new_figure(
         len(heights), figsize=(7.2, 1.7 + sum(heights)), height_ratios=heights, sharex=True
     )
     top = panels[0]
-    ends = []
     notes: list[str] = []
     all_estimates: list[Any] = []
     spans: dict[Any, list[float]] = {panel: [] for panel in panels}
     keyed = {"pointwise": False}
     spots: list[_truth.Spot] = []
+    times = sorted({x for points in (*levels.values(), *contrasts.values()) for x, _ in points})
 
     def draw(
         ax: Axes,
-        series: list[Any],
+        points: list[tuple[float, Any]],
         color: str,
         style: int,
         dodge: tuple[int, int],
         name: str,
     ) -> None:
-        xs = [float(h) for h in horizons]
-        intervals = [_core.estimate_interval(e) for e in series]
+        xs = [x for x, _ in points]
+        intervals = [_core.estimate_interval(e) for _, e in points]
         ys = [i.psi for i in intervals]
         shift = _offset(ax, *dodge)
         spots.extend(_truth.Spot(ax, None, x, shift, name) for x in xs)
@@ -1530,39 +1566,42 @@ def _restricted(
             if value is not None
         )
 
-    for i, name in enumerate(chosen):
-        color = _core.series_color(slot[name])
-        draw(top, levels[name], color, slot[name], (i, len(chosen)), name)
-        all_estimates.extend(levels[name])
-        ends.append((float(horizons[-1]), levels[name][-1].psi, name_of(name), color))
-    top.set_ylabel(_wrap_axis_label("", f"Restricted mean {word}{unit}"))
+    ends = []
+    if levels:
+        for i, name in enumerate(levels):
+            color = _core.series_color(slot[name])
+            draw(top, levels[name], color, slot[name], (i, len(levels)), name)
+            all_estimates.extend(e for _, e in levels[name])
+            ends.append((levels[name][-1][0], levels[name][-1][1].psi, name_of(name), color))
+        top.set_ylabel(_wrap_axis_label("", f"Restricted mean {word}{unit}"))
     diff_ends = []
     if contrasts:
-        diff = panels[1]
-        for i, name in enumerate(versus):
-            draw(diff, contrasts[name], _core.SECONDARY_INK, i, (i, len(versus)), f"{name} vs")
-            all_estimates.extend(contrasts[name])
+        diff = panels[-1]
+        for i, name in enumerate(contrasts):
+            draw(diff, contrasts[name], _core.SECONDARY_INK, i, (i, len(contrasts)), f"{name} vs")
+            all_estimates.extend(e for _, e in contrasts[name])
             diff_ends.append(
                 (
-                    float(horizons[-1]),
-                    contrasts[name][-1].psi,
+                    contrasts[name][-1][0],
+                    contrasts[name][-1][1].psi,
                     f"{name_of(name)} vs {name_of(reference)}",
                     _core.SECONDARY_INK,
                 )
             )
         _core.reference_line(diff, 0.0, label="No difference")
         diff.set_ylabel(_wrap_axis_label("Difference in", f"restricted mean {word}{unit}"))
-    span = float(horizons[-1]) - float(horizons[0]) or 1.0
-    left, right = float(horizons[0]) - 0.06 * span, float(horizons[-1]) + 0.3 * span
+    span = times[-1] - times[0] or 1.0
+    left, right = times[0] - 0.06 * span, times[-1] + 0.3 * span
     for axis in panels:
         axis.set_xlim(left, right)
-        _pad(axis, [0.0, *spans[axis]] if axis is not top else spans[axis])
+        _pad(axis, [0.0, *spans[axis]] if axis is not top or not levels else spans[axis])
     nudge = 0.04 * span
-    _label_ends(top, [(x + nudge, y, t, c) for x, y, t, c in ends])
+    if levels:
+        _label_ends(top, [(x + nudge, y, t, c) for x, y, t, c in ends])
     if contrasts:
-        _label_ends(panels[1], [(x + nudge, y, t, c) for x, y, t, c in diff_ends])
+        _label_ends(panels[-1], [(x + nudge, y, t, c) for x, y, t, c in diff_ends])
     panels[-1].set_xlabel(time_label or "Restriction time (up to this time point)")
-    panels[-1].set_xticks([float(h) for h in horizons])
+    panels[-1].set_xticks(times)
     _truth.draw(truth, spots)
     heading = (
         "Restricted mean survival up to each horizon"

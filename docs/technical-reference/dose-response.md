@@ -169,6 +169,56 @@ a pair's fluctuation does not solve its score. Both raise `DataError`. Declare
 $D$ with a margin inside the expected dose range, and choose it without reading the sample: an
 endpoint set from the sample changes the target.
 
+A declared conditional dose support, `PointTreatment(treatment_support=Support(lower, upper))`,
+asserts $g_0(a \mid W) = 0$ outside $[l(W), u(W)]$. The fit refuses an observed dose outside its
+row's support (`DataError`, the policy route's wording), and then refuses, with
+`invalid_declaration`, every pair whose kernel support $[\max(a_0 - h, \ell_D),
+\min(a_0 + h, u_D)]$ some row's support does not cover, naming the pairs and the row count:
+positivity fails there by declaration. A support that covers every pair's kernel on every row
+changes nothing. `dose_response_preflight` runs these checks and the refusals of the
+[compositions table](#compositions), for the direct fit and for `CausalStudy.identify`.
+
+## Study route
+
+`CausalStudy.identify(DoseResponseCurve(curve))` binds the declaration to a `PointTreatment`
+design with one continuous dose, and `estimate()` fits `DoseResponseTMLE` on the study's data.
+The route adds no estimand and no estimation step: `tests/unit/test_dose_response_study.py`
+checks that it equals the direct fit bit for bit in every estimate, variance, influence curve,
+band limit, support record and label, on a binary outcome with and without strata, a continuous
+outcome with the linear fluctuation, an in-sample fit and a weighted fit. The registered study
+therefore covers the route exactly where it covers the direct fit.
+
+The identification record states consistency and no unmeasured confounding for every dose in
+$D$, no interference, positivity over every declared pair's kernel, that the declaration is made
+without reading the data, and that each target is the smoothed curve, not $\theta(a_0)$. With
+strata it adds positivity within each stratum, and with `treatment_adjustment=` the mechanism
+restriction. Its remainder condition is the product form above.
+
+`estimate()` takes `method="tmle"` and reads these `TMLEMethod` fields, passing each to the
+engine keyword of the same meaning: `outcome_learner`, `treatment_learner`, `density_bins`,
+`cross_fit`, `n_folds`, `learner_folds`, `fluctuation`, `q_bounds`, `alpha`, `n_multiplier`
+(the engine's `n_replicates`), `multiplier_kind`, `band_reference`, `random_state`, `run_id` and
+`n_jobs`. `TMLEMethod` defaults to 10 folds, and the registered study ran 5; the label does not
+read the fold count. Every other method and field is refused before any learner:
+
+| request | code |
+| --- | --- |
+| `LongitudinalTreatment`, `TimeToEvent`, `LongPanel` | `implementation_gap`, [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) part (e) |
+| `TrialWithExternalData`, a discrete or vector treatment | `invalid_declaration` |
+| `collaborative_tmle`, `drtmle` | `implementation_gap`, F5 |
+| `adaptive_iptw` | `invalid_declaration`: a continuous dose has no arms |
+| `repeats > 1`, `split_plan`, `n_bootstrap`, `bootstrap_resampling`, treatment screening | `implementation_gap`, X95 part (e) |
+| `stratify_by` other than `"none"` | refused for every fit when `CrossFitting` is built ([fold and outcome-scale rules](cv-tmle.md#fold-and-outcome-scale-rules)) |
+| `targeting_scheme="fold"`, `fold_evaluation=True` | `inference_gap`: no reviewed interval covers a fold-specific fluctuation of a smoothed pair |
+| `simultaneous=False` | `invalid_declaration`: the band is always reported |
+| any other `ModelSpec`, `Targeting` or `Inference` field | `invalid_declaration`: the curve does not read it |
+
+The result is the same `DoseResponseResult`, with `identified_effect`, `method`, one
+`ParameterKey` per pair (axis `"dose"`, `value` the dose, `bandwidth` the bandwidth) and a
+`provenance` whose `protocol_fingerprint` is the study protocol's. `result.summary()` prints the
+pairs and the band; its full form adds the identification assumptions, the declaration and the
+study description.
+
 ## Support
 
 `result.pair_support` holds one entry per reported estimate, and `result.to_frame()` repeats its main
@@ -212,7 +262,9 @@ the label.
 | a binary, categorical or vector treatment | refused, `invalid_declaration` |
 | missing outcome, missing treatment, intermediate variable | refused, `implementation_gap`, roadmap X10. The second mechanism would have to be evaluated at every node |
 | a treatment with declared dose atoms, or a declared known treatment mechanism | refused, `implementation_gap`; [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) part (c) |
-| `CausalStudy` | not wired. Fit `DoseResponseTMLE` directly |
+| a declared conditional dose support (`treatment_support=`) | accepted when it covers every pair's kernel on every row; otherwise refused, `invalid_declaration` ([The estimator](#the-estimator)) |
+| a declared treatment-mechanism subset (`treatment_adjustment=`) | accepted, `experimental`. The influence function lies in the tangent space of a model that restricts only $g$, so it is unchanged; no registered study fits a restricted density |
+| `CausalStudy` | `CausalStudy.identify(DoseResponseCurve(curve))` ([Study route](#study-route)) |
 
 ## Support label
 
@@ -229,8 +281,11 @@ cross-fitted, on iid unweighted rows with complete outcomes.
 | continuous, with `q_bounds=` | `"linear"` | none | `supported` | `experimental` | `gaussian` |
 | any other combination | | | `experimental` | `experimental` | none |
 
+A declared treatment-mechanism subset reads `experimental` in every row of this table.
+
 The band reads `supported` only where the study's band cell measured it, on the 15 pairs of the
-binary declaration, with at least 10,000 Mammen draws. The pairs' estimates carry no range, so the
+binary declaration, with at least 10,000 Mammen draws and the normal reference; another
+`multiplier_kind` or `band_reference` reads `experimental`. The pairs' estimates carry no range, so the
 band stays on the identity scale and a limit can leave [0, 1]. A pair below the support floor reads `experimental` with
 [X95](../roadmap.md#x95-dose-response-intervals-below-the-support-floor) as its evidence, and a
 band over such a pair reads `experimental` too. The label does not read the learners, the sample
@@ -286,10 +341,15 @@ checks each row, the score scale and the out-of-fold source of the outcome recor
 | dropping $1/g$, leaving the plug-in untargeted, or reading the regression at the wrong node each miss the truth at every pair | `::test_each_targeting_mutation_misses_the_truth` |
 | every pair solves its score, including a 200-pair declaration; round trip; strata; support report; refusals before any learner fits | the fit tests in the same file |
 | a pair whose fluctuation does not solve its score raises `DataError`, which a repeated-sampling study records as one lost replicate | `::test_an_unsolved_fluctuation_is_a_data_error_a_study_records` |
+| the study route equals the direct fit bit for bit, in five configurations | `tests/unit/test_dose_response_study.py::test_the_route_equals_the_direct_fit` |
+| each read method field reaches the engine and moves the fit away from the default; each unread field is refused before any learner | `::test_each_read_field_reaches_the_engine`, `::test_an_unread_field_is_refused_before_any_learner` |
+| a treatment-mechanism subset reads `experimental`, and the full set and no declaration read `supported` | `::test_a_treatment_mechanism_subset_reads_experimental` |
+| a declared support that cuts one or two pairs' kernels names exactly those pairs; a covering support changes nothing | `::test_a_support_that_cuts_a_kernel_is_refused_before_any_learner`, `::test_a_covering_support_changes_nothing` |
 
 The [registered study](method-evidence/dose-response.md) passes every gate: 27 primary rows
 (lowest coverage 0.9207, worst standardized bias 0.030) and 7 property cells, including the band's
 joint coverage, exact-efficiency calibration and the targeting gain. It has no comparator.
 A [separate study](method-evidence/dose-response-npcausal.md) pairs `DoseResponseTMLE` with
-npcausal `ctseff` on a law where the curve is a line, so both smoothed curves equal it. That study
-is declared, and its runs are pending a local R run.
+npcausal `ctseff` on a law where the curve is a line, so both smoothed curves equal it. Its
+4,800 replications at n = 4,000 read three of six paired rows equivalent or superior and three
+red under `reporting`, each with a named owner.

@@ -1455,7 +1455,7 @@ def selector_settings() -> dict[str, Any]:
         "strategy": "discrete",
         "candidates": ((), ("W1",)),
         "estimands": "ate",
-        "ctmle_estimand": "ate",
+        "selection_estimand": "ate",
         "reference": multi_arm_common.REFERENCE,
         "simultaneous": False,
         "g_bounds": multi_arm_common.G_BOUNDS,

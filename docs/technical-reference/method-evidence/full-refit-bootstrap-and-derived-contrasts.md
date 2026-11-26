@@ -97,8 +97,15 @@ The policy was declared before the run, in `RED_CELL_POLICY` of
 
 ## Result
 
-Every ratio and RMST cell passed, and every shrunken control fell below the band. The
-in-sample end-of-study, in-sample survival and point-treatment bootstrap cells passed. So
+Every ratio and RMST cell passed, and every shrunken control fell below the band. On their
+strength the support rows `G11.nodes4` (in sample, cells `rmst_survival` and
+`rmst_contrast_survival`) and `G12.nodes4` (cross-fitted, cells `rmst_crossfit` and
+`rmst_contrast_crossfit`) list the `restricted_mean` and `restricted_mean_difference` kinds, which
+license the Wald interval of an RMST level and difference, computed or stored by
+`restricted_horizons=` on the estimand. The bootstrap interval of a restricted mean keeps the
+`derived` kind.
+
+The in-sample end-of-study, in-sample survival and point-treatment bootstrap cells passed. So
 the support rows `G01`, `G11.nodes4` and `T01.binary` list the `bootstrap` kind. The point cell is an
 in-sample `TMLE` fit, so the row covers the in-sample point `TMLE` fit only. A cross-fitted point
 bootstrap, a clustered bootstrap and every `DRTMLE` bootstrap keep the interval names and carry the

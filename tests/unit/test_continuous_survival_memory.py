@@ -677,27 +677,28 @@ def _effect() -> Any:
     return study, study.identify(RegimeContrast({"t": 1, "c": 0}, reference="c", horizons=[1, 2]))
 
 
-def test_a_study_refusal_spells_the_estimator_call_that_reproduces_it(
+def test_a_study_takes_the_budget_and_names_it_in_the_refusal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    study, effect = _effect()
-    fitted = _quiet(lambda: effect.estimate(random_state=0, cross_fit=False, n_multiplier=500))
+    """A study reaches the budget as ``max_memory_bytes=``; it never changes the result."""
+    _, effect = _effect()
+    settings = {"random_state": 0, "cross_fit": False, "n_multiplier": 500}
+    fitted = _quiet(lambda: effect.estimate(**settings))
+    budgeted = _quiet(lambda: effect.estimate(**settings, max_memory_bytes=2**62))
+    assert list(budgeted.estimates) == list(fitted.estimates)
+    for name, estimate in fitted.estimates.items():
+        other = budgeted.estimates[name]
+        assert (estimate.psi, estimate.std_error) == (other.psi, other.std_error)
+    assert fitted.simultaneous.bands == budgeted.simultaneous.bands
+    with pytest.raises(_memory.ContinuousSurvivalMemoryError) as caught:
+        effect.estimate(**settings, max_memory_bytes=1)
+    text = str(caught.value)
+    assert "max_memory_bytes=1" in text
+    assert "keyword of estimate() or a field of Runtime on a study" in text
     monkeypatch.setattr(_memory, "available_memory", lambda: 1)
     with pytest.raises(_memory.ContinuousSurvivalMemoryError) as caught:
-        effect.estimate(random_state=0, cross_fit=False, n_multiplier=500)
-    text = str(caught.value)
-    assert "cleverly.survival.ContinuousSurvivalTMLE((1.0, 2.0), " in text
-    assert "simultaneous=True" in text and "max_memory_bytes=..." in text
-    assert "variance='switched'" in text
-    assert "With this seed it returns the result this study would." in text
-    call = text.split("cleverly.survival.ContinuousSurvivalTMLE(", 1)[1].split(".fit_data(", 1)[0]
-    call = call[: call.rindex(")")].replace("max_memory_bytes=...", "max_memory_bytes=2**62")
-    direct = _quiet(lambda: eval(f"ContinuousSurvivalTMLE({call})").fit_data(study.data))
-    assert list(direct.estimates) == list(fitted.estimates)
-    for name, estimate in fitted.estimates.items():
-        other = direct.estimates[name]
-        assert (estimate.psi, estimate.std_error) == (other.psi, other.std_error)
-    assert fitted.simultaneous.bands == direct.simultaneous.bands
+        effect.estimate(**settings)
+    assert "the memory available now" in str(caught.value)
 
 
 def test_an_unrelated_study_refusal_keeps_its_text() -> None:
@@ -705,4 +706,4 @@ def test_an_unrelated_study_refusal_keeps_its_text() -> None:
     with pytest.raises(MethodConfigurationError) as caught:
         effect.estimate(q_bounds=(0.1, 0.9))
     assert not isinstance(caught.value, _memory.ContinuousSurvivalMemoryError)
-    assert "fit the same estimator directly" not in str(caught.value)
+    assert "max_memory_bytes" not in str(caught.value)

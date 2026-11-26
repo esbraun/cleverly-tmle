@@ -1234,7 +1234,7 @@ def test_a_budget_one_byte_short_refuses_before_any_learner(name: str) -> None:
     assert f"{predicted:,} bytes" in text
     assert f"{predicted - 1:,} bytes" in text
     assert "which max_memory_bytes sets" in text
-    assert f"{cls}(max_memory_bytes=...)" in str(error.refusal.alternative)
+    assert f"(an argument of {cls}, and a keyword of estimate()" in str(error.refusal.alternative)
     assert "No learner was fitted" in text
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -1394,40 +1394,31 @@ def _study() -> tuple[CausalStudy, Any]:
     return study, effect
 
 
-def test_the_facade_spells_the_direct_call_and_that_call_reproduces_it(
+def test_the_facade_takes_the_budget_and_names_it_in_the_refusal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A study reaches the budget as ``max_memory_bytes=``, and its refusal says so."""
     study, effect = _study()
     settings = _learners(n_folds=2)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         facade = effect.estimate("tmle", **settings)
-    monkeypatch.setattr(memory_module, "available_memory", lambda: 1)
+        budgeted = effect.estimate("tmle", **settings, max_memory_bytes=2**62)
+    for name, estimate in facade.estimates.items():
+        assert estimate.psi == budgeted.estimates[name].psi
+        assert estimate.std_error == budgeted.estimates[name].std_error
     for call in (effect.estimate, effect.planned_fits):
         with pytest.raises(LongitudinalMemoryError) as caught:
-            call("tmle", **settings)
+            call("tmle", **settings, max_memory_bytes=1)
+        assert "which max_memory_bytes sets" in str(caught.value)
         alternative = str(caught.value.refusal.alternative)
-        assert "cleverly.longitudinal.LTMLE(" in alternative
-        assert "max_memory_bytes=...).fit(study.data)" in alternative
-        assert "reference='never'" in alternative
-        assert "With this seed it returns the result this study would." in alternative
-        assert caught.value.predicted is not None and caught.value.budget == 1
-    monkeypatch.undo()
-    functional = effect.functional
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        direct = LTMLE(
-            functional.interventions,
-            reference=functional.reference,
-            horizons=functional.horizons,
-            msm=functional.msm,
-            **settings,
-            max_memory_bytes=2**62,
-        ).fit(study.data)
-    assert set(facade.estimates) <= set(direct.estimates)
-    for name, estimate in facade.estimates.items():
-        assert estimate.psi == direct.estimates[name].psi
-        assert estimate.std_error == direct.estimates[name].std_error
+        assert "keyword of estimate() or a field of Runtime on a study" in alternative
+        assert caught.value.budget == 1
+    monkeypatch.setattr(memory_module, "available_memory", lambda: 1)
+    with pytest.raises(LongitudinalMemoryError) as caught:
+        effect.estimate("tmle", **settings)
+    assert "the memory available now" in str(caught.value)
+    assert study.data is not None
 
 
 # ------------------------------------------------------------------ construction and scope

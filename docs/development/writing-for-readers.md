@@ -80,7 +80,7 @@ gained one.
 | what a fit refuses, and with which error | [scope and refusals](../technical-reference/scope-and-refusals.md) and each method's own refusal section | each row quotes the message the code raises |
 | when a result reads `supported` or `experimental` | `src/cleverly/_support_rows.py`, and the method's study page under [method evidence](../technical-reference/method-evidence/validation-grid.md) | the fast suite recomputes each verdict from the committed artifacts |
 | whether a study has run, and what it found | the study's page under method evidence, and the validation grid | the same recomputation; a study that has not run has no verdict |
-| an argument default | the docstring signature on the API page | the signature is the code |
+| an argument default | the docstring signature on the API page, and for the five setting groups and the method options the [settings reference](../user-guide/settings.md) | the signature is the code; `tests/unit/test_documentation_settings.py` reads the settings reference against the dataclasses and the method translations |
 
 Before you write one of these facts on a reader page, read it off the owning page and the code it
 cites, not off another reader page. State the case the page needs in plain words, and link the
@@ -169,7 +169,7 @@ measures below. The exit status is 1 when a gated measure fails.
 | --- | --- |
 | `**What this output tells you.**` even once, and any other bold opener used twice or more | none (gated) |
 | step numbers in headings or prose, such as "Step 7" or a heading such as `## 1. Setup` | none (gated) |
-| words of prose on the main path: everything before a "Go deeper" heading, excluding dropdowns and code | at most 2,000 (gated). The budget is 2,600 for `interventions`, `model-based-over-time`, `sequential-offers`, and `sequential-pricing`, which carry two or three analyses. `--budget` sets another limit |
+| words of prose on the main path: everything before a "Go deeper" heading, excluding dropdowns and code | at most 2,000 (gated). The budget is 2,600 for `interventions`, `model-based-over-time`, `sequential-offers`, and `sequential-pricing`, which carry two or three analyses. `--budget` sets another limit. A page over budget is trimmed, and a new check or analysis goes after "Go deeper"; the budget is not raised for it. `test_every_notebook_passes_the_gated_reader_measures` applies the gated measures to every example notebook |
 | words inside each dropdown | reported. The accuracy reviewer confirms that each dropdown holds only formulas, exact conditions, derivations, and probe numbers, and no main-path explanation |
 | the first use of each term in [library words](#library-words-and-their-plain-replacements), in prose outside code and dropdowns | listed with its cell id. The persona and accuracy reviewers confirm a plain definition at or before it |
 | tables in prose | listed with their row and column counts. A table with fewer than three rows needs a reason |

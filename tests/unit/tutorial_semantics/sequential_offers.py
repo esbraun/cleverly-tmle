@@ -29,6 +29,8 @@ from tests.unit.tutorial_semantics import (
     EXAMPLES,
     adjustment_table,
     assert_protocol_recorded,
+    assert_weights_lesson,
+    cap_moves,
     covers,
     stored_output,
 )
@@ -44,6 +46,7 @@ _PROBE = "reviews/notebook-review/probes/sequential-offers"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
+    "0.25": "the smallest logged probability the simulated law sets, not a printed result",
     "0.0156": "the product of the three smallest logged offer probabilities, 0.25 cubed = 0.015625: "
     "src/cleverly/datasets/offers.py, recomputed in _check_cap",
     "0.0019": f"Monte Carlo standard error of the crude and wrong-model g-computation "
@@ -58,6 +61,14 @@ UNPRINTED_DECIMALS = {
     "_check_deployment_and_benchmark",
     "0.64": "0.01 / 0.25**3, the product of three consent probabilities below which the cumulative "
     "probability of a shipping follower falls under the cap of 0.01, recomputed in _check_cap",
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "assessment-reading": {"0.01": "ltmle"},
+    "refutation-reading": {"0.020": "ltmle"},
 }
 
 CONTRASTS = ("discount", "shipping", "win_back", "win_back_ship")
@@ -76,6 +87,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_blind(namespace)
     _check_paired(namespace)
     _check_diagnostics(namespace)
+    _check_weights_lesson(namespace)
     _check_refutation_limits(namespace)
     _check_deployment_and_benchmark(namespace)
     _check_probe_logs()
@@ -669,7 +681,9 @@ def _check_refutation_limits(namespace: dict[str, Any]) -> None:
     # The skipped checks of the reading, each refused as the reading states.
     wide = namespace["panel"].pivot(index="customer", columns="week")
     tenure = wide[("tenure", 1)].to_numpy()
-    with pytest.raises(CapabilityError, match="equals the adjustment column 'tenure'"):
+    with pytest.raises(
+        CapabilityError, match="the pre-treatment control equals the adjustment column 'tenure'"
+    ):
         refute(
             result,
             estimand=estimand,
@@ -857,3 +871,21 @@ def _check_prose_phrases() -> None:
 
     paired = _prose("failure-mode-reading")
     assert f"excluded zero on {exclusions[1]} and {exclusions[2]} of 100 draws" in paired
+
+
+def _check_weights_lesson(namespace: dict[str, Any]) -> None:
+    """The "Weights and balance week by week" lesson under "Go deeper"."""
+    assert_weights_lesson(namespace, feedback=True)
+    rows = namespace["weight_rows"].set_index(["regimen", "time"])["max_weight"]
+    # "to 80.9 for the weekly discount in week 3, while win-back stays at 19.7 or below".
+    assert rows.idxmax() == ("discount", 3)
+    assert rows["win_back"].max() < 19.75
+    # "Lowering it to 0.005 moves no estimate."
+    assert cap_moves(namespace).abs().max().max() < 0.005
+    # "A floor of 0.02 is refused: the design gives some customers a 0.01562 chance of the
+    # discount in all three weeks", 0.25 cubed.
+    result = namespace["result"]
+    with pytest.raises(CapabilityError, match="Truncating a known design mechanism") as excinfo:
+        result.diagnostics.truncation_curve(bounds=[0.02])
+    assert "regimen 'discount'" in str(excinfo.value)
+    assert "smallest 0.01562" in str(excinfo.value) and round(0.25**3, 5) == 0.01562

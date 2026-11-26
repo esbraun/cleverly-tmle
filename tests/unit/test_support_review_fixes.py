@@ -228,6 +228,9 @@ class TestTheDerivedKind:
             "bootstrap_band",
             # Checked when variance="policy_weighted" (test_policy_variance.py).
             "wald_policy",
+            # Checked by LongitudinalResult.rmst and rmtl (test_restricted_mean_estimand.py).
+            "restricted_mean",
+            "restricted_mean_difference",
         }
 
 

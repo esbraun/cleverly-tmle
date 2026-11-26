@@ -884,7 +884,6 @@ ALLOWED = {
     "datasets/pricing.py": "a data generator",
     "longitudinal/gformula.py": "an inverse-CDF draw of a Gaussian covariate, not an interval",
     "sensitivity/simulated_confounding.py": "a latent perturbation threshold",
-    "learners/screeners.py": "a screening p-value, not a reported interval",
     "longitudinal/_memory_guard.py": "a measured worker-share ratio that happens to read 1.96",
 }
 

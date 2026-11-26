@@ -248,7 +248,7 @@ def selector_fits() -> dict[str, Any]:
             CTMLE(
                 strategy="discrete",
                 candidates=(("W",),),
-                ctmle_estimand=stem,
+                selection_estimand=stem,
                 outcome_learner=law.OracleMultiOutcome(),
                 treatment_learner=law.OracleMultiTreatment(),
                 estimands=("ey", "ate", "rr", "or"),

@@ -2666,6 +2666,61 @@ def _learned_rule_contrast_cases() -> tuple[RowCase, ...]:
     )
 
 
+def _learned_rule_contrast_comparators_cases() -> tuple[RowCase, ...]:
+    """The cases of ``learned-rule-contrast-comparators`` (X123 (d)): ``T58``.
+
+    Each runs the study's own fit, beside ``Static(0)``, two known stochastic regimes and the
+    natural course (``combined``) or beside the natural course alone (``natural_course``), under
+    one report on a draw of its law at the primary size, up to the classifier. The stochastic
+    case drops the natural course from the combined fit's comparators.
+    """
+    module, slug = "_learned_rule_contrast_comparators_law", "learned-rule-contrast-comparators"
+
+    def case(setting: str, report: str, scenario: str) -> RowCase:
+        def fit(study: Any, frame: Any) -> Any:
+            if setting != "stochastic":
+                return study.fit_one(
+                    frame,
+                    study.base.outcome_learner(),
+                    0,
+                    setting,
+                    cv_evaluation=study.REPORTS[report],
+                )
+            estimator = study.TMLE(
+                learned_rule=study.LearnedRule(),
+                interventions=study.regimes("combined")[:-1],
+                n_folds=study.base.N_FOLDS,
+                cv_evaluation=study.REPORTS[report],
+                targeting_scheme="pooled",
+                g_bounds="auto",
+                outcome_learner=study.base.outcome_learner(),
+                treatment_learner=study.base.treatment_learner(),
+                random_state=0,
+            )
+            return estimator.fit(
+                frame, outcome="Y", treatment="A", covariates=list(study.base.COVARIATES)
+            ).single()
+
+        return _observed(
+            f"T58.{setting}.{report}",
+            slug,
+            scenario,
+            f"{module}.py:165",
+            module,
+            lambda study: study.base.draw(scenario, 2_000, 0),
+            fit,
+        )
+
+    return (
+        case("combined", "fold_evaluated", "non_exceptional"),
+        case("combined", "stacked", "misspecified_limit"),
+        case("stochastic", "fold_evaluated", "misspecified_limit"),
+        case("stochastic", "stacked", "non_exceptional"),
+        case("natural_course", "fold_evaluated", "non_exceptional"),
+        case("natural_course", "stacked", "misspecified_limit"),
+    )
+
+
 def _learned_rule_optimal_value_cases() -> tuple[RowCase, ...]:
     """The cases of ``learned-rule-optimal-value`` (X11 PR I, X11 (f)).
 
@@ -3090,6 +3145,33 @@ def _projection_evidence_cases() -> tuple[RowCase, ...]:
         case("T50", "band_crr_4k", "600", "fit_projection"),
         case("T49.clustered", "band_clustered_4k", "600", "fit_projection"),
         case("T49.repeats", "band_rep3_4k", "600", "fit_projection"),
+    )
+
+
+def _projection_method_cases() -> tuple[RowCase, ...]:
+    """The cases of ``projection-methods`` (P1 PR 3): the DR-TMLE and per-arm C-TMLE ``T49`` rows.
+
+    Each runs the study's own in-sample fit of one group, on a draw of law P at the group's size,
+    up to the classifier: the DR-TMLE projection with the declared mechanism, with the correct
+    logistic mechanism, and the per-arm outcome-adaptive C-TMLE projection.
+    """
+    module, slug = "projection_methods", "projection-methods"
+
+    def case(row: str, label: str) -> RowCase:
+        return _observed(
+            row,
+            slug,
+            label,
+            f"{module}.py:529",
+            module,
+            lambda study: study.draw_from_seed(label, study.GROUP_BY_LABEL[label].n, 0)[0],
+            lambda study, frame: study.fit(study.GROUP_BY_LABEL[label], frame, 0),
+        )
+
+    return (
+        case("T49.drtmle.known", "dr_known_4k"),
+        case("T49.drtmle", "dr_both_4k"),
+        case("T49.ctmle_oat", "ctmle_points_4k"),
     )
 
 
@@ -3682,6 +3764,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_optimal_value_cases(),
     *_learned_rule_intermediate_cases(),
     *_learned_rule_optimal_compositions_cases(),
+    *_learned_rule_contrast_comparators_cases(),
     *_learned_regimen_cases(),
     *_eliminated_cases(),
     *_separable_cases(),
@@ -3696,6 +3779,7 @@ CASES: tuple[RowCase, ...] = (
     *_projection_cases(),
     *_projection_composition_cases(),
     *_projection_evidence_cases(),
+    *_projection_method_cases(),
     *_continuous_dose_cases(),
     *_adaptive_iptw_cases(),
     *_long_horizon_cases(),

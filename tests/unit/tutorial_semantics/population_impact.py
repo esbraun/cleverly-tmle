@@ -29,6 +29,22 @@ from tests.unit.tutorial_semantics import (
     stored_output,
 )
 
+#: Decimals the readings write that no stored output prints, each with its reason.
+UNPRINTED_DECIMALS = {
+    "direct-heading: 1.0": "intermediate=1.0 in the direct-effect cell, the visit value the effect sets",
+    "assessment-heading: 0.01": "the fit's floor on the chance of answering, which no summary "
+    "prints; check asserts gain_fit.config.missingness_bound == 0.01",
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "association-reading": {"0.5641": "data"},
+    "failure-reading": {"0.0872": "estimates"},
+    "assessment-heading": {"0.0095": "estimate"},
+}
+
 #: The refit cells the rule derives from this notebook today, in notebook order.  A change here is
 #: a change in what the fast gate skips, so it shows in the diff of the pull request that causes it.
 REFIT_CELLS = ("sensitivity", "refutation")
@@ -246,6 +262,8 @@ def check(namespace: dict[str, Any]) -> None:
     _check_setup(namespace)
     _check_estimates(namespace)
     _check_assessment(namespace)
+    # assessment-heading reads this floor; the summary prints only the offer model's limits.
+    assert namespace["gain_fit"].config.missingness_bound == 0.01
     _check_tilt(namespace)
 
 
@@ -299,3 +317,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
     with pytest.raises(CapabilityError, match="observation_reads") as excinfo:
         simulated_confounding(namespace["ate_fit"], grid=grid)
     assert "F12" in str(excinfo.value)
+    assert (
+        "moves the treatment of a missing-outcome fit only under a declared response mechanism "
+        "that reads the covariates alone" in str(excinfo.value)
+    )

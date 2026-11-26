@@ -34,33 +34,60 @@ study = CausalStudy(
 ```
 
 - `adjustment` is the measured pre-treatment set used by the identification argument.
-- `weights` defines the target population and flows through nuisance losses, targeting, influence
-  curves, and covariance.
+- `weights` names a column of sampling or survey weights. They set the population the answer
+  describes: every model, the correction step that removes the outcome model's remaining bias,
+  and the standard error use them. If the weights came from a model fitted to these same data,
+  such as a nonresponse model, also pass `weights_estimated=True`. That changes no estimate or
+  standard error, because cleverly never sees the weight model and treats the weights as fixed
+  numbers. The standard error therefore leaves out the error of the weight model, and the
+  summary's Weights line says the weights were estimated. Some fits then carry the
+  `experimental` label (the status table in [inference](../technical-reference/inference.md)).
 - `cluster` selects cluster-robust inference, and it selects a grouped fold draw that keeps each
   cluster whole. It is not another adjustment variable. A cluster is then the independent unit a
-  cross-fitted fit counts, so each treatment arm must appear in at least two clusters. C-TMLE
-  refuses `cluster=` at every setting except `strategy="derivative"`
+  cross-fitted fit counts, so each treatment arm must appear in at least two clusters.
+  Collaborative TMLE (C-TMLE), a variant that fits its treatment model in light of the outcome
+  model, refuses `cluster=` at every setting except `strategy="derivative"`
   ([scope and refusals](../technical-reference/scope-and-refusals.md)). Longitudinal TMLE
   cross-fits with whole-cluster folds.
 
-  Clusters may differ in size. A clustered fit with fewer than 40 clusters with positive weight mass reports a Student t interval with the cluster count minus 2
-  degrees of freedom. Below 10 such clusters, or 20 for longitudinal TMLE, the interval carries
-  the `experimental` label, and below 3 the fit reports no interval. For TMLE and DR-TMLE, these
-  rules also apply to one reported stratum. [Clusters](../technical-reference/inference.md#clusters)
-  gives the rules and the estimators they cover.
+  Clusters may differ in size. Below 40 clusters that hold at least one row with a nonzero
+  weight, a clustered fit reports a Student t interval with the cluster count minus 2 degrees of
+  freedom. Below the fit's floor the interval carries the `experimental` label, and below 3
+  clusters the fit reports no interval. The floor is 10 clusters for most fits of a treatment given
+  once and 20 for fits over time, and lower only for the one contrast a simulation study measured
+  at few clusters for that kind of fit. For TMLE and DR-TMLE these rules also apply to each
+  reported stratum ([clusters](results-assessment.md#clusters),
+  [few clusters](../technical-reference/inference.md#few-clusters)).
 
-  A fit that averages one estimate per cross-fitting fold (`cv_evaluation=True`) uses the cluster
-  count minus the number of folds, at every cluster count. Outside learned treatment rules, that
-  fit needs clusters of equal size, or of equal total weight on a weighted fit, and the effect
-  among the treated also needs the same number of treated rows in each cluster. Otherwise it
-  refuses and points to the default, which estimates from all folds at once
+  A fit that averages one estimate per cross-fitting fold (`CrossFitting(fold_evaluation=True)`)
+  uses the cluster count minus the number of folds, at every cluster count. Outside learned
+  treatment rules, that fit needs clusters of equal size, or of equal total weight on a weighted
+  fit, and the effect among the treated also needs the same number of treated rows in each
+  cluster. Otherwise it refuses and points to the default, which estimates from all folds at once
   ([clusters of unequal mass](../technical-reference/cv-tmle.md#clusters-of-unequal-mass)).
 - `strata` requests subgroup parameters and preserves the stratum in structured parameter keys.
   A stratum variable must also appear in `adjustment`: it conditions the reported parameter, so a
   design that stratified on a variable it did not adjust for is refused rather than fitted.
   Arm, regime, shift, incremental, MSM and natural-course targets fit strata, and so does
-  DR-TMLE at every `guard`. Fold targeting and fold evaluation refuse them
-  ([weights, strata, and clusters](../technical-reference/point-treatment-tmle.md#weights-strata-and-clusters)).
+  DR-TMLE at every `guard`.
+
+  A fit that averages one estimate per cross-fitting fold (`CrossFitting(fold_evaluation=True)`)
+  also fits strata. It
+  reports the mean under each treatment option and their differences, the means under fixed plans,
+  and a learned rule's value, on complete data without `cluster=`. A
+  [simulation study](../technical-reference/method-evidence/fold-evaluated-strata.md) checks the
+  option means and the average effect with a single draw of the folds (`repeats=1`), so those read
+  `supported`. The means under plans, more than one draw, and the band that covers every estimate
+  at once read `experimental`. Running the correction step separately inside each fold
+  (`targeting_scheme="fold"`) refuses strata.
+  [Point-treatment TMLE](../technical-reference/point-treatment-tmle.md), section "Weights,
+  strata, and clusters", lists every case and refusal.
+- `outcome_family` is the outcome's type. The default `"auto"` reads an outcome with only the
+  values 0 and 1 as yes-or-no (`"binomial"`) and anything else as continuous (`"gaussian"`).
+  Declare it when the sample could mislead, such as a score that happens to take only 0 and 1 in
+  a small pilot. A continuous outcome, declared or read, needs its known range (`q_bounds`) for a
+  cross-fitted fit, as the opening section says. A declared `"binomial"` checks that the recorded
+  outcomes are 0 or 1.
 - `intermediate` and explicit missingness roles activate supported controlled-direct-effect and
   missing-outcome compositions. The next section gives the two missingness roles.
 
@@ -187,6 +214,37 @@ gives the formulas, and
 [known node mechanisms](../technical-reference/longitudinal-tmle.md#known-node-mechanisms) gives
 the same choice at each node of a `LongitudinalTreatment`, `TimeToEvent` or `LongPanel` design.
 
+### Let the treatment model read fewer columns
+
+When you know that the treatment was assigned from only some of the adjustment columns, name them
+in `treatment_adjustment`. The treatment model then reads only those columns, and the outcome
+model keeps every column of `adjustment`. The declaration is an assumption about how treatment was
+assigned. If it holds, the estimate stays on target when either model is right; if it fails, only
+a right outcome model keeps it on target. The interval needs the assumption and both models to be
+reasonably accurate. To leave out a column that predicts who is treated and has no other path to
+the outcome, drop it from `adjustment` instead, which removes it from both models.
+
+```python
+restricted = CausalStudy(
+    frame,
+    design=PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=("W1", "W2", "W3"),
+        treatment_adjustment=("W1",),
+    ),
+)
+```
+
+A fit's full summary (`summary(detail="full")`) lists the assumption under Assumptions. A design
+refuses `treatment_adjustment` beside `treatment_probabilities=`, which already fixes the treatment
+model, and a question that tilts the odds of treatment (`IncrementalMean` or `IncrementalEffect`)
+refuses it too ([scope and refusals](../technical-reference/scope-and-refusals.md), the rows on
+`treatment_adjustment=`). A
+[simulation study](../technical-reference/method-evidence/option-treatment-adjustment.md) checks
+the declaration, and [point-treatment TMLE](../technical-reference/point-treatment-tmle.md),
+section "Treatment-mechanism covariates", states its conditions.
+
 ## Missing outcomes and missing treatments
 
 Declare each missingness role with a 0/1 indicator column. The column is 1 where the value is
@@ -245,10 +303,20 @@ The fit records the construction it ran as `composite`. The
 states the conditions, and [scope and refusals](../technical-reference/scope-and-refusals.md)
 lists the refused compositions.
 
+With a missing treatment, collaborative TMLE with `strategy="oat"` (`CollaborativeTMLEMethod`)
+also gives in-sample point estimates of the arm means and their contrasts. Its treatment model reads only the outcome
+model's prediction for each arm, so these estimates are on target only when the outcome model
+is right. They come with no interval
+([collaborative TMLE](../technical-reference/collaborative-tmle.md), section "Baseline strata and
+missing data in the per-arm design", and the status table in
+[inference](../technical-reference/inference.md)).
+
 ## Continuous treatment
 
-Set `treatment_kind="continuous"` when the target is a modified treatment policy. Arm-indexed
-estimands are refused on this design.
+Set `treatment_kind="continuous"` when the treatment is a dose, such as a price or a discount.
+The design answers a modified treatment policy, a working model over doses (`MSMProjection`)
+and the smoothed dose-response curve ([`DoseResponseCurve`](estimands.md#a-curve-over-a-continuous-dose)).
+Arm-indexed estimands are refused on this design.
 
 ```python
 dose_study = CausalStudy(
@@ -261,6 +329,40 @@ dose_study = CausalStudy(
     ),
 )
 ```
+
+If you know the range the dose can take, declare it with `treatment_support=Support(lower, upper)`
+(from `cleverly.interventions`). If many rows share one dose, such as zero, list it in
+`dose_atoms=`. The section "Modified treatment policies" of [estimands](estimands.md) says what
+each declaration changes. A trend line over doses (`MSMProjection`) refuses both declarations, so
+fit it on a study without them (the refusal table of
+[MSM projections](../technical-reference/msm-projections.md)).
+
+## Several treatment columns
+
+Pass a list to `treatment=` when the treatment has several parts, such as a coupon offered or not
+and a discount amount. When every part takes a few values, cleverly treats each combination as one
+option (up to 20), and the questions about options, such as `ATE` and `CounterfactualMean`,
+report one estimate per combination. When a part is an amount, name it in `continuous_treatment=`.
+Such a treatment has no fixed options. It answers policy questions that change one or more parts
+(`JointPolicy` inside `ModifiedTreatmentPolicy` or `ModifiedTreatmentPolicyEffect`), and the
+questions about options, such as `ATE`, refuse
+([point-treatment TMLE](../technical-reference/point-treatment-tmle.md), section "Vector
+treatments").
+
+```python
+bundle = CausalStudy(
+    frame,
+    design=PointTreatment(
+        outcome="Y",
+        treatment=["A", "dose"],
+        adjustment=("W1", "W2"),
+        continuous_treatment=["dose"],
+    ),
+)
+```
+
+`treatment_support=` and `dose_atoms=` then take a mapping from the amount's column to its
+declaration, such as `treatment_support={"dose": Support(0.0, 10.0)}`.
 
 ## A trial with external data
 

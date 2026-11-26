@@ -269,7 +269,12 @@ from ..interventions import (
     Support,
     as_interventions,
 )
-from ..interventions.base import refuse_mixed_interventions, refuse_regime_densities
+from ..interventions.base import (
+    refuse_mixed_interventions,
+    refuse_natural_course,
+    refuse_regime_densities,
+    split_natural_course,
+)
 from ..interventions.incremental import refuse_continuous_tilt
 from ..interventions.learned import (
     LEARNED_RULE_ARM_REMEDY,
@@ -291,6 +296,7 @@ from ..interventions.learned import (
     learned_rule_split,
     learned_rule_treat,
     mean_over_splits,
+    natural_course_of,
     optimal_rule_requested,
     refuse_learned_rule_composition,
     stacked_fold_estimates,
@@ -1078,7 +1084,13 @@ class TMLE:
         on the same folds: the fit also reports each regime's value (``ey_known_regime``) and
         its contrast with the learned rule (``ate_learned_rule``), the rule minus the regime,
         or the regime minus the rule with ``reference=`` naming the rule (experimental; the
-        contrast's curve is the difference of the two curves).  Such a fit builds no
+        contrast's curve is the difference of the two curves).  A
+        :class:`~cleverly.interventions.NaturalCourse` in ``interventions=`` is the observed
+        course: the fit reports its mean ``E[Y]`` (``ey_natural_course``), under the
+        report's fold weights, and the rule's contrast with it, from the stacked curves,
+        outside the joint fluctuation (experimental).  The interval is exact when the
+        outcome model is consistent or the mechanism is declared; with a misspecified
+        outcome model and a fitted mechanism no conservativeness result holds.  Such a fit builds no
         simultaneous band over those estimates, and ``summary()`` says why.  It refuses
         ``policies=``, ``incremental=``, ``msm=`` and an arm estimand beside it, a continuous
         treatment, missing outcomes, and a rule learner on more than two arms or with
@@ -1105,9 +1117,11 @@ class TMLE:
         as ``cate_projection[<term>]`` (difference scale) or ``log_crr_projection[<term>]``
         (log-ratio scale).  :class:`cleverly.ConditionalContrast` is the study spelling.
         It refuses ``msm=``, ``interventions=``, ``policies=``, ``incremental=``,
-        ``learned_rule=`` and ``reference=``; strata, ``repeats`` above 1, the bootstrap,
-        ``cv_evaluation=True``, an intermediate, a missing treatment and a continuous or
-        vector treatment (P1 in ``docs/roadmap.md``).
+        ``learned_rule=`` and ``reference=``; a continuous or vector treatment, which has no
+        pair of arms to contrast; strata beside an intermediate (X63 in
+        ``docs/roadmap.md``); and a log ratio on a shifted outcome scale.  Strata,
+        ``repeats`` above 1, the bootstrap, an intermediate and an in-sample missing
+        treatment compose.
     n_folds, learner_folds:
         Outer cross-fitting folds, and the inner folds a Super Learner uses to score
         its candidates.
@@ -1192,9 +1206,18 @@ class TMLE:
         logit is taken.
     target_weights:
         Use the weighted form of the fluctuation (R's ``target.gwt``).
-    screen_treatment, screen_threshold, min_retain:
-        Pre-screen covariates for the treatment model (R's ``prescreenW.g``).  Refused
-        beside a declared known mechanism, which replaces the treatment model.
+    screen_treatment, min_retain:
+        Pre-screen the covariates of the treatment model on the outcome, as R's
+        ``prescreenW.g`` does: inside each training set, a cross-validated lasso of the
+        outcome on the covariates, with the treatment held fixed, keeps the covariates that
+        predict the outcome (:func:`~cleverly.learners.screen_by_outcome`).  An instrument,
+        which predicts treatment only, is dropped.  ``min_retain`` is the fewest kept;
+        ``None`` is R's ``min(ceil(n_eff / 20), p)``, which keeps every covariate unless
+        ``p`` is large next to the effective sample size.  A confounder dropped from the
+        treatment model leaves the estimate consistent when the outcome model is; the
+        interval then also needs the outcome model's error to be ``o_P(n^{-1/2})`` (or
+        ``DRTMLE``), and the estimate is biased when the outcome model is not consistent.
+        Refused beside a declared known mechanism, which replaces the treatment model.
     outcome_by_arm:
         Fit one outcome regression per treatment arm (R's ``drtmle(stratify=TRUE)``).  Each
         fold fits a learner on the covariates alone for each arm, on that arm's rows with an
@@ -1265,9 +1288,11 @@ class TMLE:
         ``id=``, GLM nuisances (``LogisticRegression``, ``LinearRegression``,
         :class:`~cleverly.learners.GLM`, a Super Learner of those, or a declared treatment
         mechanism) and one stacked or in-sample split whose every fold holds two clusters,
-        and it is refused otherwise. The fit costs one refit per cluster and builds no
-        simultaneous band. The option is experimental until its validation study is
-        registered.
+        and it is refused otherwise. The fit would cost one refit per cluster and build no
+        simultaneous band. ``TMLE`` refuses ``"jackknife"`` on every fit today, before any
+        learner: the in-sample family failed its floor study (roadmap F28), and the stacked
+        cross-fitted family waits for its interval floor to be redeclared (roadmap X54).
+        ``LTMLE`` offers the option.
     random_state, n_jobs:
         Reproducibility and parallelism. ``n_jobs`` also runs the jackknife refits in
         parallel.
@@ -1478,7 +1503,6 @@ class TMLE:
         nuisance_bound: float = DEFAULT_NUISANCE_BOUND,
         target_weights: bool = False,
         screen_treatment: bool = False,
-        screen_threshold: float = 0.1,
         min_retain: int | None = None,
         outcome_by_arm: bool = False,
         conditional_form: ConditionalForm = "arm_mean",
@@ -1551,12 +1575,20 @@ class TMLE:
         self.nuisance_bound = nuisance_bound
         self.target_weights = target_weights
         self.screen_treatment = screen_treatment
-        self.screen_threshold = screen_threshold
         self.min_retain = min_retain
         self.outcome_by_arm = outcome_by_arm
         self.conditional_form = conditional_form
         self.estimands = estimands
-        self.interventions = as_interventions(interventions)
+        # A natural course is accepted only beside a learned rule, where the fit reports its
+        # mean outside the regime set; anywhere else it refuses before any regime is built.
+        regimes, natural_course = split_natural_course(interventions)
+        if natural_course is not None and learned_rule is None:
+            declared = (
+                interventions if isinstance(interventions, (list, tuple)) else [interventions]
+            )
+            refuse_natural_course(list(declared), holder="interventions=")
+        self.interventions = as_interventions(regimes)
+        self.natural_course = natural_course
         self.policies = tuple(policies or ())
         self.incremental = tuple(incremental or ())
         refuse_mixed_interventions(self.policies, kind="policy", holder="policies=")
@@ -2438,7 +2470,6 @@ class TMLE:
             intermediate_learner=learners["intermediate_learner"],
             folds=folds,
             screen_treatment=self.screen_treatment,
-            screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             has_policies=bool(self.policies),
             policies=policies,
@@ -2527,7 +2558,6 @@ class TMLE:
                 intermediate_learner=None,
                 folds=inner_folds if fixed else None,
                 screen_treatment=self.screen_treatment,
-                screen_threshold=self.screen_threshold,
                 min_retain=self.min_retain,
                 outcome_by_arm=self.outcome_by_arm,
                 nominal_folds=None if fixed else inner_folds.n_folds,
@@ -2649,7 +2679,6 @@ class TMLE:
                 intermediate_learner=None,
                 folds=split if fixed else None,
                 screen_treatment=self.screen_treatment,
-                screen_threshold=self.screen_threshold,
                 min_retain=self.min_retain,
                 outcome_by_arm=self.outcome_by_arm,
                 nominal_folds=None if fixed else split.n_folds,
@@ -2726,7 +2755,6 @@ class TMLE:
             intermediate_learner=learners["intermediate_learner"],
             folds=None,
             screen_treatment=self.screen_treatment,
-            screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             has_policies=bool(self.policies),
             policies=() if declares_tuned(self.policies) else tuple(self.policies),
@@ -3705,6 +3733,9 @@ class TMLE:
                     weighted=data.is_weighted,
                     strata=data.strata_names,
                     known_regimes=[str(item.name) for item in self.interventions],
+                    natural_course=(
+                        None if self.natural_course is None else str(self.natural_course.name)
+                    ),
                 ),
             }
         result = TMLEResult(
@@ -4157,8 +4188,8 @@ class TMLE:
         learned = in_sample_learner_condition(self, data)
         if learned is not None:
             conditions.append(learned)
-        # A cross-fitted EP rule fit of the optimal value with a declared final learner (P1)
-        # runs; the registered study measured it without a verdict.
+        # A cross-fitted EP rule fit of the optimal value with a declared final learner runs;
+        # the registered study measured it without a verdict, and F42 keeps its claim.
         curve = ep_rule_condition(self)
         if curve is not None:
             conditions.append(curve)
@@ -5873,7 +5904,6 @@ class TMLE:
             intermediate_value=intermediate_value,
             extra_levels=extra_levels,
             screen_treatment=self.screen_treatment,
-            screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             policies=self.policies if tuned is None else tuned.expanded,  # type: ignore[arg-type]
             policy_reference=reference if tuned is None else None,
@@ -6051,7 +6081,6 @@ class TMLE:
             folds=folds,
             scaler=scaler,
             screen_treatment=self.screen_treatment,
-            screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
             n_jobs=self.n_jobs,
             outcome_by_arm=self.outcome_by_arm,
@@ -6063,7 +6092,11 @@ class TMLE:
         The learned rule is code ``0`` and the known regimes of ``interventions=`` follow it
         (X11 (c)).  With ``reference=`` naming the learned rule, or with no known regime, the
         code is ``0``, and each contrast is a known regime minus the rule.  Otherwise it is
-        ``1``, and each contrast is the rule minus a known regime.
+        ``1``, and each contrast is the rule minus a known regime.  The contrast with a
+        natural course takes its sign from ``reference=`` alone
+        (:meth:`_natural_course_flip`), so a fit whose one comparator is the natural course,
+        whose regime set holds the rule alone and so has code ``0``, still reports the rule
+        minus the natural course.
         :func:`~cleverly.interventions.learned.learned_rule_configuration_refusal` has
         already refused any other ``reference=``.
         """
@@ -6073,6 +6106,14 @@ class TMLE:
         ):
             return 0.0
         return 1.0
+
+    def _natural_course_flip(self) -> bool:
+        """Whether the natural-course contrast is the natural course minus the rule.
+
+        ``True`` only when ``reference=`` names the learned rule, as for the known regimes.
+        """
+        rule = self.learned_rule
+        return rule is not None and self.reference is not None and str(self.reference) == rule.name
 
     def _reference_regime(self) -> float:
         """The regime code contrasts are taken against, from ``reference=`` and the names."""
@@ -7749,6 +7790,12 @@ class TMLE:
             ),
             natural_course=natural_course,
             known_score=known_score,
+            learned_natural_course=(
+                None
+                if (natural := natural_course_of(self)) is None or regimes is None
+                else str(natural.name)
+            ),
+            natural_course_flip=self._natural_course_flip(),
         )
         # One context per fluctuation, shared by every target in the group: the
         # mean-group estimands are different functionals of the same targeted

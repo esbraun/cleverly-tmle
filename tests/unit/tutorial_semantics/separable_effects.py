@@ -28,8 +28,18 @@ PARTS = ("whole medicine", "fluid part", "potassium part")
 
 #: Decimals the prose writes that no stored output prints, each with its reason.
 UNPRINTED_DECIMALS = {
+    "refute-reading: 0.7": "the lower end of the scatter-ratio range that 20 refits easily give, 0.7 to 1.3, a "
+    "reading aid rather than a result",
     "1.3": "the upper end of the scatter-ratio range that 20 refits easily give, 0.7 to 1.3, a "
     "reading aid rather than a result; _check_data asserts the ratio lies inside it",
+}
+
+
+#: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
+#: literal, then the code cell that prints it (tests.unit.tutorial_semantics.narration_scopes).
+NARRATION_SOURCES: dict[str, dict[str, str]] = {
+    "assessment-reading": {"0.01": "estimate"},
+    "title": {"-16.5": "order"},
 }
 
 
@@ -46,8 +56,6 @@ def _check_data(namespace: dict[str, Any]) -> None:
     frame, known = namespace["frame"], namespace["known"]
     assert frame.shape == (8_000, 5)
     assert list(frame.columns) == ["older", "prior_admissions", "dose", "day", "event"]
-    # "such as day 70 for the death in row 0".
-    assert frame.loc[0, "event"] == 2 and frame.loc[0, "day"] == 70.0
     # "when event is 0, day is the last check that found the patient with neither".
     assert set(frame.loc[frame["event"].eq(0), "day"]) <= {30.0, 60.0, 90.0}
     # The known risks are the exact truth of each plan.
@@ -219,3 +227,16 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert abs(tests["random_common_cause"].statistic) < 0.05
     assert _near(tests["subset"].statistic, 0.91, 2)
     assert 0.7 < tests["subset"].statistic < 1.3
+    # "Checks that plant a known effect refuse any fit that includes the supplement plan, even
+    # for its plain high-dose comparison."
+    from cleverly.exceptions import CapabilityError
+    from cleverly.validation import refute
+
+    plain = next(name for name in contrast_fit.estimates if "supplement" not in name)
+    assert "high dose vs no pill" in plain
+    for name in ("dummy_outcome", "simulated_outcome", "plasmode"):
+        with pytest.raises(
+            CapabilityError, match="has no generated process for a fit with a Separable regimen"
+        ) as excinfo:
+            refute(contrast_fit, estimand=plain, tests=(name,), n_replicates=2)
+        assert "X91" in str(excinfo.value)

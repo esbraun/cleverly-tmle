@@ -1276,7 +1276,6 @@ def test_the_interval_level_and_the_submodel_bound_are_reachable_separately() ->
         {"missingness_learner": sklearn.linear_model.LogisticRegression(max_iter=1000)},
         {"intermediate_learner": sklearn.linear_model.LogisticRegression(max_iter=1000)},
         {"screen_treatment": True},
-        {"screen_threshold": 0.2},
         {"min_retain": 2},
         {"stratify_folds": "outcome"},
         {"targeting_scheme": "foldwise"},
@@ -1372,9 +1371,7 @@ def test_a_longitudinal_option_refuses_before_engine_construction(monkeypatch) -
 
 def test_estimation_options_cannot_reassign_study_roles() -> None:
     effect = _study().identify(ATE())
-    with pytest.raises(
-        MethodConfigurationError, match="Study-design roles belong on PointTreatment"
-    ):
+    with pytest.raises(MethodConfigurationError, match="Study-design roles belong on the design"):
         effect.estimate(covariates=["W1"])
 
 

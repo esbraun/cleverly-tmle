@@ -675,7 +675,7 @@ class EffectCurveResult:
         The producing fit, which the curve's assessment reads and refits: a
         :class:`~cleverly.estimators.TMLEResult`, or an
         :class:`~cleverly.estimators.ep.EPFit`.
-    fitted_method : {"tmle", "ep"}
+    fitted_method : {"tmle", "collaborative_tmle", "drtmle", "ep"}
         The method that produced the curve.
     sieve : SieveRecord or None
         How an EP fit set its sieve size, and what its cross-validation read; ``None`` for a
@@ -727,7 +727,12 @@ class EffectCurveResult:
         so a curve that keeps neither refuses them through its replay gate.
         ``diagnostics.capabilities`` lists the rows.  A controlled direct effect projection
         refuses before any refit (``CDE_CURVE_TOOLS_REFUSAL``): the held-out checks build the
-        total effect's pseudo-outcome.
+        total effect's pseudo-outcome.  On a curve of a per-arm C-TMLE projection the five
+        held-out rows refuse (``CTMLE_CURVE_TOOLS_REFUSAL``), because its estimate reads the
+        outcome-adaptive design.  On a curve of a DR-TMLE projection they refuse
+        (``DRTMLE_CURVE_TOOLS_REFUSAL``), because its estimate also solves the reduced-regression
+        equations, which the held-out checks would not reproduce.  In both cases the rows that
+        read the producing fit still answer.
         """
         from ._curve_assessment import CurveDiagnostics
         from .effect_modification import refuse_cde_curve_tools
@@ -737,7 +742,13 @@ class EffectCurveResult:
 
     @property
     def sensitivity(self) -> Any:
-        """The sensitivity-analysis facade, whose every row refuses on a curve (P1)."""
+        """The sensitivity-analysis facade, whose every row refuses on a curve.
+
+        A curve reports no estimand of its own.  Each row redirects to the fit that answers
+        it (the producing fit of a projection curve, or the projection on an EP curve's
+        basis) where that fit's row runs, and carries that fit's own record where it refuses
+        (:func:`cleverly.assessment.curve_sensitivity_record`).
+        """
         from .assessment import SensitivityFacade
 
         return SensitivityFacade(self)
@@ -771,9 +782,10 @@ class EffectCurveResult:
     ) -> Any:
         """Run the applicable post-fit assessment battery.
 
-        Every sensitivity row refuses on a curve: no sensitivity analysis is derived for a
-        conditional contrast curve (P1).  The five curve operations refit the producing
-        estimator, so they run only with ``include_refits=True``.
+        Every sensitivity row refuses on a curve, which reports no estimand of its own; each
+        row names the fit that answers it, or that fit's own refusal.  The five curve
+        operations refit the producing estimator, so they run only with
+        ``include_refits=True``.
 
         Parameters
         ----------

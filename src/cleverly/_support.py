@@ -99,11 +99,16 @@ SupportLabel = Literal["supported", "experimental"]
 
 #: What a support row can license for an estimate: a point estimate, a Wald interval on the
 #: normal or the t reference, a simultaneous band, a percentile bootstrap interval, a BCa
-#: bootstrap interval, a studentized bootstrap sup-t band, a derived estimate, or a Wald
+#: bootstrap interval, a studentized bootstrap sup-t band, a derived estimate, a Wald
 #: interval at the larger of the influence-curve and policy-weighted variances
-#: (``variance="policy_weighted"``, :mod:`cleverly.inference.policy`).
-#: A derived estimate is a ratio, a contrast, a restricted mean or an E-value built from
-#: estimates of one fit. No row lists a hypothesis-test kind, because a test statistic is the
+#: (``variance="policy_weighted"``, :mod:`cleverly.inference.policy`), or the Wald interval
+#: of a restricted mean of a binned survival curve: of one regimen's restricted mean
+#: (``"restricted_mean"``) or of the difference of two regimens' restricted means
+#: (``"restricted_mean_difference"``). A derived estimate is a ratio, a contrast or an
+#: E-value built from estimates of one fit. A restricted mean has its own kinds because a
+#: cell that measured it licenses it without licensing every ratio and contrast, and because
+#: a common bias of two arms cancels in their difference, so a difference cell does not
+#: license a level. No row lists a hypothesis-test kind, because a test statistic is the
 #: ``wald`` interval read against a null and carries the support of that interval.
 Kind = Literal[
     "point",
@@ -115,6 +120,8 @@ Kind = Literal[
     "bootstrap_band",
     "derived",
     "wald_policy",
+    "restricted_mean",
+    "restricted_mean_difference",
 ]
 
 
@@ -196,7 +203,9 @@ def combine_support(supports: Iterable[Support], kind: Kind | None = None) -> Su
         The support of each input estimate. At least one is required.
     kind : str or None, default None
         A member of :data:`Kind`: the kind the new estimate needs from the rows of its
-        inputs. A derived estimate passes ``"derived"``. ``None`` combines the inputs only.
+        inputs. A derived estimate passes ``"derived"``, and a restricted mean of a binned
+        survival curve passes ``"restricted_mean"`` or ``"restricted_mean_difference"``.
+        ``None`` combines the inputs only.
 
     Returns
     -------
@@ -350,8 +359,11 @@ class SupportKey:
         learned-rule fit with clusters of unequal
         sizes, ``unequal_clusters``. A learned-rule fit with a rule learner adds
         ``rule_learner_blip``, ``rule_learner_weighted_classification`` or
-        ``rule_learner_ep``, and one with known
-        regimes beside the rule (``interventions=``) adds ``known_regimes``. A longitudinal key
+        ``rule_learner_ep``, and one with a comparator beside the rule (a known regime of
+        ``interventions=`` or a :class:`~cleverly.interventions.NaturalCourse`) adds
+        ``known_regimes``. Beside it, ``known_stochastic_regimes`` unless every known regime is
+        a ``Static`` level or a known ``Rule`` (:func:`stochastic_comparators`), and
+        ``natural_course`` when a natural course is declared. A longitudinal key
         holds the known factors, and ``tilted_mechanism`` when a declared node is read in the
         weighted sample. A clustered key on the ``t`` tier adds ``adaptive_nuisance`` when a
         nuisance learner the fit uses is data-adaptive (:func:`adaptive_nuisance`), and with it
@@ -938,6 +950,34 @@ _AXIS_FAMILIES: Final[Mapping[str, str]] = {
 #: axis and arithmetic, and it is another target, so no ``P11`` row covers it.
 OPTIMAL_RULE_FAMILY: Final = "P12"
 
+
+def stochastic_comparators(regimes: Sequence[Any]) -> bool:
+    """Whether a known regime beside a learned rule is not a ``Static`` level or a known ``Rule``.
+
+    A whitelist, by exact type: a subclass of either, a ``Stochastic`` and a user-written
+    known density all count, because only the two shipped one-hot kinds reduce to a column
+    the ``learned-rule-contrast`` study measured.
+
+    Parameters
+    ----------
+    regimes : sequence
+        The known regimes of ``interventions=``.
+
+    Returns
+    -------
+    bool
+        ``True`` when some regime is outside the whitelist.
+    """
+    from .interventions import Rule, Static
+
+    def one_hot(item: Any) -> bool:
+        if type(item) is Static:
+            return True
+        return type(item) is Rule and getattr(item, "rule_kind", None) == "known"
+
+    return not all(one_hot(item) for item in regimes)
+
+
 #: The target family of the log-CRR projection (P1 part (a)).  It shares the
 #: effect-modification axis with the CATE projection (``P13``), and its fluctuation
 #: alternates with the projection, so no ``P13`` row covers it.
@@ -1130,10 +1170,21 @@ def point_key(
         # with the outcome effect, passed the pre-declared rule (X11 (e)).
         qualifiers.add("unequal_clusters")
     known_regimes = tuple(getattr(estimator, "interventions", None) or ())
-    if getattr(estimator, "learned_rule", None) is not None and known_regimes:
-        # Known regimes beside a learned rule (X11 (c)) add regime values and contrasts that
-        # no learned-rule row measured, so a row covers such a fit only if it declares them.
+    natural_course = getattr(estimator, "natural_course", None)
+    if getattr(estimator, "learned_rule", None) is not None and (
+        known_regimes or natural_course is not None
+    ):
+        # A comparator beside a learned rule (X11 (c)) adds values and contrasts that no
+        # learned-rule row measured, so a row covers such a fit only if it declares them.
         qualifiers.add("known_regimes")
+        if stochastic_comparators(known_regimes):
+            # T44 measured static comparators, and a known Rule reduces bit for bit to a
+            # measured one-hot column. A density that is not one-hot changes the column's
+            # clever covariate and its covariance with the learned column, so only a row that
+            # declares it covers it.
+            qualifiers.add("known_stochastic_regimes")
+        if natural_course is not None:
+            qualifiers.add("natural_course")
     loss = getattr(getattr(estimator, "learned_rule", None), "loss", "plug_in")
     if loss != "plug_in":
         # A learned-rule row of the plug-in rule never covers a fit whose rule a blip, a
@@ -1677,6 +1728,8 @@ _KIND_NAMES: Final[Mapping[str, str]] = {
     "bootstrap_band": "studentized bootstrap band",
     "derived": "derived estimate",
     "wald_policy": "Wald interval, policy-weighted variance",
+    "restricted_mean": "restricted mean",
+    "restricted_mean_difference": "restricted mean difference",
 }
 
 

@@ -2009,6 +2009,60 @@ $\tau$, an end-of-study fit, and a working-model fit.
 `tests/studies/survival_grid_law.py` states the RMST truth by enumeration over the event times. It
 sums no risk curve.
 
+### Restricted means declared on the estimand
+
+`RegimeMean(..., restricted_horizons=(tau,))` and `RegimeContrast(..., restricted_horizons=(tau,))`
+on a time-to-event design declare restricted means as targets. The study passes the field to
+`LTMLE(restricted_horizons=...)`, `SDR(restricted_horizons=...)` or `SurvivalCTMLE`, adds every
+grid time below each $\tau$ to the fitted horizons, and reports only the declared risks. The fit
+stores $\mathrm{RMST}_d(\tau)$ and $\mathrm{RMTL}_{d,j}(\tau)$ for each regimen, and their
+differences against the reference, under the node-indexed names of the table above, keyed by
+`ParameterKey(measure="rmst" | "rmtl", horizon=m)`. `RegimeMean` keeps the levels and
+`RegimeContrast` the differences. `rmst` and `rmtl` read the stored estimate for $\tau$, $\tau$
+given as the grid time or as a float equal to it. On the exact-time route the field is the
+engine's `restricted_horizons=`, which adds each $\mathrm{RMTL}_{a,j}(\tau)$ to the walk's targets
+([continuous-time survival](continuous-time-survival.md#restricted-means-ratios-and-the-curve)).
+
+On the binned route the restricted mean is read from the targeted risks, not targeted again. It is
+a fixed linear combination $\psi = c + \sum_k \omega_k F_d(g_k)$ of the risks, so its efficient
+influence curve is $\sum_k \omega_k D_k$, with $D_k$ the curve of $F_d(g_k)$. Each risk solves
+$P_n D_k^* = 0$ at its targeted fit, so the plug-in solves $P_n \sum_k \omega_k D_k^* = 0$, and its
+remainder is the same combination of the risks' second-order remainders. The plug-in is therefore
+the TMLE of $\psi$ with the risks' conditions. `score_equations()` keeps one solver row per node
+and adds none for a restricted mean, whose equation is that weighted sum of the listed ones. On
+the default iterated-mean model the added grid times leave the declared risks unchanged. On
+`survival_model="hazard", targeting="one_step"` they join the joint walk, which then moves the
+declared risks slightly; the fit stays a TMLE of each reported risk and restricted mean.
+
+The binned $\mathrm{RMST}_d(g_m)$ is the left Riemann sum of $S_d$ on the grid, so for a continuous
+event time $0 \le \mathrm{RMST}^{\text{binned}} - \int_0^{g_m} S_d(u)\,du \le
+\max_k (g_k - g_{k-1})\,\{1 - S_d(g_m)\}$, with $g_0 = 0$. The Wald interval of a stored binned
+restricted mean is symmetric, unlike the exact-time interval, which is bounded on $(0, \tau)$.
+
+| composition | evidence | label |
+| --- | --- | --- |
+| RMST difference, LTMLE iterated mean, one baseline treatment held over five nodes, in sample | `point-treatment-survival` cell `rmst_5`, row `G14.survival` with kind `restricted_mean_difference` | supported |
+| RMST level on that configuration | no cell measures a level | experimental |
+| RMST level and difference, LTMLE iterated mean, four treatment nodes, in sample | `full-refit-bootstrap-and-derived-contrasts` cells `rmst_survival` and `rmst_contrast_survival`, row `G11.nodes4` | supported |
+| the same, cross-fitted | cells `rmst_crossfit` and `rmst_contrast_crossfit`, row `G12.nodes4` | supported |
+| every other binned composition: other node counts, competing-risk restricted means, the hazard model, `SDR`, the collaborative TMLE, weights, clusters, `eliminate=`, stochastic or modified policies, separable regimens, repeats | the input risks' rows lack the kinds | experimental, or withheld with the risks |
+
+On a one-event fit $\mathrm{RMTL}_d = \tau - \mathrm{RMST}_d$, so its interval is the RMST's
+reflected and the same kinds license it. The level and difference kinds are separate because a
+bias common to both arms cancels in a difference, so a difference cell cannot certify a level.
+The derived bootstrap interval of a restricted mean keeps the `derived` kind.
+
+The study refuses, before any learner, a restricted mean on an end-of-study or repeated outcome
+(`CapabilityError`, `different_estimand`), a $\tau$ that is not a grid time from the second on
+(`DataError`), `method="drtmle"` (`inference_gap`: the drift correction regresses residuals on
+scalar indices of the initial fits, Díaz 2019, Section 5, a pattern whose remainder has not been
+audited for any new target), and the sequential g-computation, IPW and parametric g-formula
+baselines (`api_redirection`; their engine results still compute `rmst` from the risks). A read
+from a `RegimeContrast` result other than a declared difference raises `CapabilityError` (`api_redirection`), since that
+result holds no risk curve of a single regimen.
+[Restricted means on the study route](scope-and-refusals.md#restricted-means-on-the-study-route)
+lists every case.
+
 ### The full-refit bootstrap
 
 `LTMLE(n_bootstrap=B)` refits the whole estimator on `B` resamples.
@@ -2573,6 +2627,7 @@ unit, in sample and under cross-fitting. The table gives each part of a clustere
 | targeting | the pooled fluctuation over every follower of each node, as on an unclustered fit |
 | curve and variance | the row curve summed within each cluster. The variance is $J\,\widehat{\mathrm{var}}(S_c)/n^2$, with $S_c = \sum_{i \in c} D_i$ and $J$ clusters |
 | status, reference and bands | the rules of [clusters](inference.md#clusters) for a longitudinal fit. Below 40 positive-mass clusters the reference is Student $t$ with $J - 2$ degrees of freedom. Below its floor the fit takes `"few_cluster_plugin"`: 6 clusters in sample and 4 cross-fitted for the always-against-never contrast, the counts from which the registered floor studies pass. The lower floor holds only on the design each study measured: one binary node without censoring in sample, two binary nodes with censoring cross-fitted. Every other estimate, and that contrast on any other design, keeps 20 and takes `"few_cluster_estimand_plugin"` below it. Simultaneous bands need 40 or more |
+| jackknife | `cluster_variance="jackknife"` replaces the cluster influence-curve variance, as [cluster jackknife](inference.md#cluster-jackknife) states. A study declares it as `Inference(cluster_variance="jackknife")` |
 | bootstrap | no support row lists `bootstrap` for a clustered cross-fitted fit, so the percentile interval is shown with the label `experimental`. Each replicate redraws a grouped split over its resampled clusters, so two copies of one cluster can land in different folds |
 
 The base result is Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, journal page 852, and
@@ -2813,6 +2868,9 @@ then needs a consistent outcome model. What the maximum buys at finite $n$ is me
 $\hat\sigma_{pw}$ reads the large-ratio rows' contribution through every row's policy dose, so it
 lifts the standard error in the samples where $\hat\sigma_{IC}$ is too small.
 
+On a `CausalStudy` the option is `variance="policy_weighted"` with `cross_fit=False`, and an unset
+`simultaneous` then reads `False`.
+
 The option is refused, before any learner fits, with cross-fitting, `repeats`, clusters, weights,
 right-censoring, a survival or repeated outcome, `msm=`, `simultaneous=True`, `n_bootstrap`,
 `ratio_trim`, a data-tuned cap, a learned or separable regimen, a treatment held from baseline, or
@@ -2851,7 +2909,7 @@ carries these numbers as notes, and `variance="policy_weighted"` covers 0.971 on
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of transforms can leave $[0, 1]$, or $[q_\text{lo}, q_\text{hi}]$ on a continuous outcome (page 854) |
 | `ratio()` of such a level | `CapabilityError` on the log scale for a level at or below 0, and on the odds scale outside $(0, 1)$ | the scale is undefined there. The difference scale stays available |
 | `msm=` | the identity link always. A logit or log link when its projection converges, and `CapabilityError` otherwise | a transform mean outside the link's range has no finite solution |
-| full-refit bootstrap | runs, and reports `bootstrap sd` with no percentile inference | no registered study measures it |
+| full-refit bootstrap | runs. The percentile interval reads `experimental`. The BCa interval (`bootstrap_interval="bca"`) is `supported` on a single-fold fit that matches a `G46.sdr` row ([long-horizon SDR study](method-evidence/long-horizon-sequentially-doubly-robust-estimation.md)) and `experimental` otherwise | no row lists the percentile interval; the long-horizon SDR study gates BCa |
 | score equations | `diagnostics.score_equations()` is `not_applicable` | no node fits a fluctuation |
 
 Clusters, observation weights, survival, competing risks, known policies, modified treatment
@@ -3217,7 +3275,7 @@ cancelled tilt factor and needs no such bound.
 | regression clip | none. The default `pseudo_learner` is a regression Super Learner with `clip=None` | `npcausal` predicts the targets unbounded |
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of $\varphi$ can leave $[0, 1]$, or the `q_bounds` range of a continuous outcome |
 | `ratio()` of such a level | `CapabilityError` on the log scale at or below 0, and on the odds or logit scale outside $(0, 1)$ | the scale is undefined there. The difference scale stays available |
-| full-refit bootstrap | runs, and reports `bootstrap sd` with no percentile inference | no registered study measures it |
+| full-refit bootstrap | runs, and reports the percentile interval, or the BCa interval with `bootstrap_interval="bca"`, under the `experimental` label | no registered study measures it |
 | `truncation_curve()` | replays the bounded factors only | the tilt factor has no bound to sweep |
 | score equations | `diagnostics.score_equations()` is `not_applicable` | no node fits a fluctuation |
 | diagnostics | `diagnostics.support()` reports each tilt node's factor range, the mechanism term's share of the curve variance, and the share of rows where some level has $\hat\pi_t$ at exactly 0 | a tilt needs no positivity, so a degenerate $\hat\pi_t$ is reported and not warned. With two levels the share counts $\hat\pi_t$ at exactly 0 or 1 |
@@ -3281,8 +3339,8 @@ of the preflight, so `planned_fits` refuses the same call with the same message,
 preview carries a note with the predicted bytes. A bootstrap replicate does not run it again,
 because its call counted the replicates.
 
-`CausalStudy` guards at the default budget. Its refusal spells the direct engine call, with
-`max_memory_bytes=...`, that reproduces the study's fit. The guard covers `LTMLE` with every outcome form and every survival model (the iterated mean, and
+`CausalStudy` passes `Runtime(max_memory_bytes=)`, or the `max_memory_bytes=` keyword of
+`estimate()`, to the estimator it builds, and guards at the default budget without it. The guard covers `LTMLE` with every outcome form and every survival model (the iterated mean, and
 the hazard fit with one treatment node, with a backward pass, with path fits and with separable
 arms), `SDR`, `IPSI`, and every route that builds them. It does not cover `SurvivalCTMLE` and
 `SurvivalDRTMLE`, whose memory is their own, the [sequential baselines](sequential-baselines.md)

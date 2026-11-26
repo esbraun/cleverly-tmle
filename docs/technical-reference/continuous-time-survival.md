@@ -3,7 +3,12 @@
 `ContinuousSurvivalTMLE` in `cleverly.survival` estimates the absolute risk of each cause of a
 competing-risks outcome under each arm of a binary baseline treatment, at declared times, with
 no time grid. It is the one-step TMLE of Rytgaard and van der Laan (2024). The study route reaches
-it through `TimeToEvent(grid="continuous")` with `TMLEMethod`; the discrete-time engines are in
+it through `TimeToEvent(grid="continuous")` with `TMLEMethod`, whose groups carry the hazard and
+censoring libraries, the norm, the variance, the bootstrap interval and the memory budget to it.
+The restricted horizons are targets, so the study declares them on the estimand,
+`RegimeMean(..., restricted_horizons=(tau,))` or `RegimeContrast(..., restricted_horizons=(tau,))`,
+which passes them to the estimator's `restricted_horizons=`; the method objects refuse the
+keyword. The discrete-time engines are in
 [longitudinal TMLE](longitudinal-tmle.md#survival-and-competing-risks).
 
 ## Estimand and identification
@@ -354,7 +359,8 @@ study the score equation also held at about 40% of 100 random times on average
 (`tests/canonical/continuous_survival/targeting-readings.csv`, `mean_off_grid_share`), so the
 integral of the targeted curve has no solved score. Rytgaard and van der Laan (2024), Theorem 1,
 cover the whole curve only on a grid of mesh $O_P(n^{-1/3-\eta})$, which a user's few target times
-do not meet. Each restriction time in `restricted_horizons=` therefore adds
+do not meet. Each restriction time in `restricted_horizons=`, or in the estimand field of the same name on the
+study route, therefore adds
 $\mathrm{RMTL}_{a,j}(\tau)$, for both arms and every cause, to the targets of the walk.
 
 A target
@@ -521,7 +527,8 @@ Before fitting any nuisance, the fit predicts each phase's peak with no block ke
 the full grid (`cleverly.survival._memory.peak_bytes`), and refuses with
 `MethodConfigurationError` when that prediction exceeds the budget. The budget is the memory
 available at that moment (`cleverly.utils.memory.available_memory`, which reads the control
-group's limit on Linux), or `max_memory_bytes=` on `ContinuousSurvivalTMLE`, which overrides it in
+group's limit on Linux), or `max_memory_bytes=` (on `ContinuousSurvivalTMLE`, or on `estimate()` and
+`Runtime` on the study route), which overrides it in
 either direction. Where the platform reports no available memory, as on macOS, nothing is checked
 and every block is kept unless `max_memory_bytes=` is passed. After the initial pass the walk
 keeps blocks up to the budget, or up to three quarters of the memory available under the default,
@@ -530,9 +537,6 @@ resident set read 7% to 9% above the predicted arrays at 8,000 to 32,000 units).
 The budget sets how many blocks are kept, so how long the walk runs, and never what it returns.
 Every refit of a result, and so every refutation, assessment replay and truncation curve, uses the
 fit's `max_memory_bytes`, and a truncation curve holds no more than its fit.
-`TimeToEvent(grid="continuous")` has no such setting; its refusal spells the
-`ContinuousSurvivalTMLE(...).fit_data(study.data)` call with the study's settings, where the budget
-can be set.
 
 With `n_jobs=` above one on `ContinuousSurvivalTMLE` (or `Runtime(n_jobs=...)` on the study
 route), each pass runs its blocks on that many threads. Each block writes only its own rows, and
@@ -599,7 +603,7 @@ lower $M$ but changes the analysis, so the engine never does it.
 | a target time past one arm's follow-up | the risk there would be an extrapolation of the hazard model |
 | a declared cause with no event | its risk is zero by construction |
 | a user treatment learner with `cross_fit=False` | the in-sample interval assumes a finite-dimensional model |
-| a method other than `TMLEMethod`, or a setting the engine does not read | the continuous-time engine runs this one estimator |
+| a method other than `TMLEMethod`, or a setting the engine does not read, such as `variance="policy_weighted"` | the continuous-time engine runs this one estimator, and the policy-weighted variance needs a modified treatment policy |
 | `rmtl()` or `rmst()` at a $\tau$ not in `restricted_horizons=` | the risks at the target times do not solve the score of their integral |
 | `curve()` or `ratio()` at a time that is not a target time | a risk between target times solves no score equation of the fit |
 | `ratio()` of anything but the two arms' risks at one cause and one time | `contrast()` takes any other smooth function of reported estimates |
