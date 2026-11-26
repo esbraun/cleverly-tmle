@@ -1,8 +1,10 @@
 # Read cleverly's output
 
 Every tutorial prints the same three kinds of output: the study description, the summary of the
-causal question, and the summary of an estimate. [Read and save results](results-assessment.md)
-covers the estimate summary in more depth, and [Check a fitted result](assessment.md) its checks.
+causal question, and the summary of an estimate. This page reads each one, and the support label
+that says whether a simulation study has checked an estimate's interval.
+[Confidence intervals](inference.md) covers how the intervals are built, and [use and save a
+result](results-assessment.md) covers the result object in code.
 
 ## The study description
 
@@ -95,8 +97,85 @@ situation, and its topic pages match each situation to its example.
 ## The estimate
 
 An estimate summary has a header that repeats the question and the fitted models, a table of
-estimates, a table that says what each row estimates, and numbered warnings and notes. Each row's name reads
-as follows.
+estimates, a table that says what each row estimates, and numbered warnings and notes.
+
+### Reading a summary
+
+The [quickstart](../getting-started/quickstart.md) fit asks how much a care-navigation offer
+(the treatment) changes patients' transition score (the outcome), and prints this:
+
+```text
+                            Effect estimate (TMLE)
+==============================================================================
+Question:      average effect of        Rows:                            2,000
+               transition_navigation    Treated share:                   0.506
+               on transition_score (1   Out-of-fold predictions:            no
+               compared with 0)         Outcome model:       linear regression
+Outcome:       transition_score         Treatment model:   logistic regression
+               (continuous)             Probability limits:  [0.01471, 0.9853]
+Adjusted for:  discharge_risk,
+               prior_utilization,
+               medication_burden, age
+Method:        targeted maximum
+               likelihood (TMLE)
+==============================================================================
+      estimate   std. error           95% CI    p-value
+------------------------------------------------------------------------------
+ate      1.513        0.046   [1.422, 1.603]    <0.0001
+==============================================================================
+Notes:
+[1] The interval of ate is widened on the side where a skewed outcome makes
+    misses more likely, so it need not be centred on the estimate. Its t
+    distribution has 250 or more degrees of freedom, so it is close to the
+    normal one. The p-value is the level at which the interval would just
+    reach the null value.
+```
+
+The row `ate` is the average treatment effect: the change in the mean score if every patient got the
+offer, compared with no patient. The `estimate` is on the scale of the outcome, here score points.
+The `std. error` measures how much the estimate would move from sample to sample, and the `p-value`
+tests whether the effect is zero. The `95% CI` is the 95% confidence interval: a range built so
+that, if the analysis were repeated on many new samples, about 95 in 100 such ranges would contain
+the true effect. That holds in large samples when the models are reasonably accurate.
+
+In words a manager can follow: offering navigation raised the mean score by about 1.5 points, and
+the data are consistent with an effect between 1.42 and 1.60 points. That sentence is causal only if
+the adjusted covariates include everything that drove both the offer and the score, and no data can
+check that. [Sensitivity analysis](sensitivity.md) asks how strong a missing one would have to be.
+
+The header records the question and how it was fitted. The fit uses two models: the
+outcome model predicts the score from the offer and the covariates, and the treatment model predicts
+each patient's chance of the offer from the covariates. The method, targeted maximum likelihood
+estimation (TMLE), starts from the outcome model's predictions and adds a correction step that uses
+the treatment model to remove most of the bias the outcome model leaves, when the treatment model is
+close to right. The correction weights each patient by one over their predicted chance of the option
+they got.
+
+`Out-of-fold predictions: no` means both models were fitted and scored on every row
+(`cross_fit=False`). That is sound for simple models like these linear and logistic regressions.
+With flexible models, such as random forests or boosting, it can make the interval too narrow, and
+the summary then warns. For those, keep the default, cross-fitting: each row's predictions come from
+models trained without that row, like out-of-fold predictions in cross-validation. A cross-fitted
+continuous outcome needs the range its values can take by how it is measured, such as
+`q_bounds=(0, 100)` for a 0-to-100 score, passed to `estimate()`. The quickstart's score has no such
+range, so fitting on every row with simple models is its only route ([quickstart, on your own
+data](../getting-started/quickstart.md)).
+
+The `Probability limits` cap each predicted chance, so that no patient gets an extreme weight. When
+the cap changes some patients' weights, a note says so; no such note prints here, so the cap changed
+no patient.
+
+Numbered notes follow the table, and they appear only when something changes how to read a number,
+with any warning first; a summary with no notes has nothing to flag. The quickstart's note says its
+interval is widened on the side a skewed outcome misses on. A note can also say that an estimate is
+experimental (see [the support label](#read-the-support-label) below), or that a row has no interval
+and why. `summary(detail="full")` adds the assumptions under which the effect can be read as caused
+by the treatment, one per line, and the settings that change how to read the numbers, such as the
+limits on predicted chances and how many patients reached them.
+
+### Row names
+
+Each row's name reads as follows.
 
 ```text
 ate_regimen[always vs never, readmission @ t=2]
@@ -123,10 +202,7 @@ it line by line.
 ### Labels, warnings and notes
 
 A `support` column appears when an estimate is `experimental`, and a note below the table says
-why. `supported` means a registered simulation study covers this configuration, such as the same
-method, design and kind of plan, and its checks passed. `experimental` means no study covers it,
-or a stated condition applies, such as too few clusters; the interval then has no checked
-coverage. The label does not say the estimate is wrong.
+why. [Read the support label](#read-the-support-label) explains the two labels.
 
 The word "licenses" in a warning means "covers". For example, the E-value says how strongly a
 missing confounder would need to be tied to both the treatment and the outcome to explain the
@@ -134,14 +210,70 @@ effect away, and its "limit" version does the same for the end of the confidence
 no effect. "No validation study licenses the E-value of the limit" means no study covers that
 number. You can still report it, with a plain caveat such as "this E-value describes this sample;
 no simulation study has checked it for this kind of analysis".
-[Read the support label](results-assessment.md#read-the-support-label) lists where the label
-appears and what each reason means.
 
 On a fit without clusters a note often says that an interval need not be centred on the estimate:
 it was built on the log-odds scale of a proportion, from two proportions' intervals, or widened on
 the side where a skewed outcome makes misses more likely
-([confidence intervals](results-assessment.md#confidence-intervals-the-bootstrap-and-bands)).
+([confidence intervals](inference.md#confidence-intervals-the-bootstrap-and-bands)).
 Other notes appear only when something changes how to read a number: for example, that a model was
 fitted and scored on the same rows, that a cap on extreme weights (the inverse chances of treatment that the correction step uses) changed
 some people's weights, or that an
 estimate's interval leans on few rows (`SparseInfluenceWarning`).
+
+### Read the support label
+
+Every estimate carries a support label, `supported` or `experimental`. It answers one question: has
+a simulation study checked the coverage of this kind of interval for this kind of fit? Coverage is
+the share of intervals that hold the true value across many simulated data sets; a 95% interval
+should cover about 95% of the time. The package keeps a fixed list of the setups its simulation
+studies checked, each one a combination of method, kind of treatment and data, and question. You do
+not request the label, and no argument turns it off.
+
+A `supported` label means that a simulation study checked a setup like your fit and passed. The
+label names the study, and `result["ate"].support.limits` lists any conditions the study set, such
+as the models it used for the outcome and the treatment or the smallest number of rows. An
+`experimental` label means that the package computes the estimate but makes no coverage claim: no
+study checked this setup, or a stated condition applies, such as too few clusters (groups of related
+rows). The label carries the reason. The quickstart's `ate` reads `supported`, with no extra
+conditions.
+
+An `experimental` label does not mean the estimate is wrong. It means no simulation has checked the
+number you read: the interval, a band over several estimates ([bands](inference.md#bands-that-cover-several-estimates-at-once)), or a value computed
+from other estimates, such as a ratio. Report such an estimate with a plain caveat, such as "no
+simulation study has checked this interval for this kind of analysis". [Run a coverage study of your
+own setup](inference.md#run-a-coverage-study-of-your-own-setup) shows how to check it yourself. A `supported`
+label says how the interval behaved in simulations; it does not show that the effect is causal.
+
+Read the label with `result["ate"].support.label`, or in the `support` column of
+`result.to_frame()`. The summary prints a `support` column and a note only when an estimate is
+experimental. [Where the label appears](#where-the-label-appears) lists every place, and the
+[validation grid](../technical-reference/method-evidence/validation-grid.md) lists the studies
+behind the labels.
+
+## Go deeper
+
+### Where the label appears
+
+| place | what it shows |
+| --- | --- |
+| `repr(estimate)` | the marker `[experimental]` after the estimate |
+| `result.summary()` | a `support` column, only when an estimate is experimental, and an `experimental` note below the table that says in plain words why. `summary(detail="full")` prints each reason under Settings |
+| `estimate.support` | a `Support` record with `label`, `reason`, `evidence`, `row` (the support entry) and `limits` |
+| `estimate.to_dict()` and `result.to_frame()` | `support` on every row. An experimental row adds `support_reason` and `support_evidence`. A row with limits adds `support_limits` |
+| `estimate.bootstrap.support` and `bootstrap_support` | the label of the percentile interval, which a support entry can cover apart from the usual interval built from the standard error (the Wald interval) |
+| `result.simultaneous.support` | the label of the band |
+| `result.config.support_key` | the key that matched the fit to a support entry. `result.save()` and `cleverly.load()` keep it with every label |
+
+The `evidence` of a `supported` estimate holds the short names of its studies. The `evidence` of an
+experimental estimate holds the ids of the [roadmap](../roadmap.md) items, such as `X54`, that would
+supply the missing evidence. The reason of an experimental label names the support entry it read,
+such as `T01.continuous`.
+
+### Labels of ratios and other derived estimates
+
+A derived estimate, computed from other estimates, such as a ratio or a contrast, is `supported`
+only when its support entry lists derived estimates (the `derived` kind) and every input is
+`supported`. A restricted mean (the average time free of the event up to a set horizon) read from a
+grid of check times needs its own kind instead. There is one kind for a single treatment plan's mean
+and one for a difference of two plans, since a study that checked the difference does not check
+each plan's mean.

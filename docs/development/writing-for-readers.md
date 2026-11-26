@@ -30,7 +30,13 @@ The data scientist:
 - does not know `cleverly`'s objects or its vocabulary.
 
 Their goal is to run this kind of analysis on their own data this afternoon, and then explain the
-result to a manager who asks "so did it work, and how sure are we?". They skim. They read the code
+result to a manager who asks "so did it work, and how sure are we?".
+
+The user guide is one step more technical than the tutorials. Its headings and prose name the
+stages of an analysis with their standard terms: identification, estimand, estimation, inference,
+diagnostics, refutation and sensitivity analysis. Define each term in plain words where it first
+appears on a page. Every other replacement in [library words](#library-words-and-their-plain-replacements)
+still applies there, and the tutorials keep the plain phrases, such as "try to break the result". They skim. They read the code
 and the first sentence after each output, and they return to the details only when something looks
 wrong.
 

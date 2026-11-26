@@ -98,6 +98,9 @@ The points agents miss most:
 - For the data-scientist pages, define each technical term in plain words where it first
   appears, and do not lean on `cleverly`'s own vocabulary (protocol, identify, nuisance,
   targeting, rung, registry, review probe). Say what the code does, then give the API name.
+  The user guide may name the stages of an analysis with their standard terms (identification,
+  estimand, estimation, inference, diagnostics, refutation, sensitivity analysis), each defined
+  at first use; the tutorials keep plain phrases.
 - Keep every statistical claim accurate. Simplify by choosing what to say, not by saying
   something false. A condition a claim needs stays, in plain words.
 - Write paragraphs of at most six sentences. Use a table only when the reader compares items

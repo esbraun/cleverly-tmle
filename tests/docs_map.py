@@ -163,6 +163,9 @@ STANDALONE_PAGES: dict[str, str] = {
     "docs/examples/topics/missing-and-combined-data.md": "an examples topic page; test_examples_navigation.py",
     "docs/examples/topics/models-and-checks.md": "an examples topic page; test_examples_navigation.py",
     "docs/user-guide/index.md": "the user guide's table of contents",
+    "docs/user-guide/topics/estimands.md": "a user-guide topic page; test_user_guide_navigation.py",
+    "docs/user-guide/topics/treatments-over-time.md": "a user-guide topic page; test_user_guide_navigation.py",
+    "docs/user-guide/topics/time-to-event.md": "a user-guide topic page; test_user_guide_navigation.py",
     "docs/references.md": "the bibliography of every page",
     "docs/roadmap.md": "planned work, kept by the roadmap rules and test_roadmap_layout.py",
     "docs/roadmap-delivered.md": "history of delivered items",
@@ -279,7 +282,7 @@ AREAS: tuple[Area, ...] = (
         "support labels",
         (S + "_support.py", S + "_support_rows.py", S + "_adaptive_evidence.py"),
         (TR + "index.md",),
-        see=(UG + "results-assessment.md", TR + "scope-and-refusals.md"),
+        see=(UG + "reading-output.md", TR + "scope-and-refusals.md"),
         guards=("tests/unit/test_method_evidence.py",),
     ),
     _area(
@@ -292,7 +295,7 @@ AREAS: tuple[Area, ...] = (
         "inference statuses and intervals",
         (S + "_inference_status.py", S + "inference/*"),
         (TR + "inference.md",),
-        see=(UG + "results-assessment.md",),
+        see=(UG + "inference.md",),
         guards=("tests/unit/test_inference_status_registry.py",),
     ),
     # ---- nuisance learning and targeting ----------------------------------------------------
@@ -422,13 +425,13 @@ AREAS: tuple[Area, ...] = (
     _area(
         "interventions",
         (S + "interventions/*",),
-        (UG + "estimands.md",),
+        (UG + "estimands.md", UG + "policies.md"),
         see=(API + "interventions.md", EX + "interventions.ipynb"),
     ),
     _area(
         "learned treatment rules",
         (S + "interventions/learned.py", S + "interventions/_rule_learners.py"),
-        (TR + "point-treatment-tmle.md",),
+        (TR + "point-treatment-tmle.md", UG + "learned-rules.md"),
         see=(EX + "treatment-rules.ipynb",),
     ),
     _area(
@@ -442,7 +445,7 @@ AREAS: tuple[Area, ...] = (
             S + "learners/density.py",
             S + "learners/density_ratio.py",
         ),
-        (TR + "point-treatment-tmle.md",),
+        (TR + "point-treatment-tmle.md", UG + "policies.md"),
         see=(EX + "schedules-and-intensity.ipynb", EX + "sequential-pricing.ipynb"),
     ),
     # ---- analyses over time -----------------------------------------------------------------
@@ -465,7 +468,12 @@ AREAS: tuple[Area, ...] = (
             S + "longitudinal/_summary.py",
             S + "longitudinal/_record_summary.py",
         ),
-        (TR + "longitudinal-tmle.md", UG + "longitudinal.md"),
+        (
+            TR + "longitudinal-tmle.md",
+            UG + "longitudinal.md",
+            UG + "longitudinal-plans.md",
+            UG + "longitudinal-estimators.md",
+        ),
         see=(
             EX + "sequential-pricing.ipynb",
             EX + "weekly-outcomes.ipynb",
@@ -482,7 +490,12 @@ AREAS: tuple[Area, ...] = (
             S + "longitudinal/drift.py",
             S + "longitudinal/_kernel.py",
         ),
-        (TR + "longitudinal-tmle.md", UG + "survival.md"),
+        (
+            TR + "longitudinal-tmle.md",
+            UG + "survival.md",
+            UG + "survival-competing-events.md",
+            UG + "survival-fitting.md",
+        ),
         see=(
             EX + "longitudinal-survival.ipynb",
             EX + "discharge-to-readmission.ipynb",
@@ -492,13 +505,13 @@ AREAS: tuple[Area, ...] = (
     _area(
         "sequential g-computation and IPW",
         (S + "longitudinal/baselines.py",),
-        (TR + "sequential-baselines.md",),
+        (TR + "sequential-baselines.md", UG + "longitudinal-estimators.md"),
         see=(EX + "sequential-offers.ipynb",),
     ),
     _area(
         "parametric g-formula",
         (S + "longitudinal/gformula.py", S + "longitudinal/_gformula_summary.py"),
-        (TR + "parametric-gformula.md",),
+        (TR + "parametric-gformula.md", UG + "longitudinal-estimators.md"),
         see=(EX + "model-based-over-time.ipynb",),
     ),
     _area(
@@ -508,7 +521,7 @@ AREAS: tuple[Area, ...] = (
             S + "longitudinal/_structural_summary.py",
             S + "validation/_structural_refute.py",
         ),
-        (TR + "structural-dynamic-effects.md",),
+        (TR + "structural-dynamic-effects.md", UG + "longitudinal-estimators.md"),
         see=(EX + "model-based-over-time.ipynb",),
     ),
     _area(
@@ -521,8 +534,8 @@ AREAS: tuple[Area, ...] = (
             S + "plotting/_continuous.py",
             S + "plotting/_continuous_curve.py",
         ),
-        (TR + "continuous-time-survival.md",),
-        see=(UG + "survival.md",),
+        (TR + "continuous-time-survival.md", UG + "survival-exact-times.md"),
+        see=(UG + "survival-competing-events.md",),
     ),
     _area(
         "continuous-time treatment plans",
@@ -575,7 +588,7 @@ AREAS: tuple[Area, ...] = (
     _area(
         "simulation studies of a configuration",
         (S + "validation/simulation.py",),
-        (UG + "results-assessment.md",),
+        (UG + "inference.md",),
         see=(API + "sensitivity-validation.md",),
     ),
     _area(

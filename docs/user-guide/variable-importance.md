@@ -113,7 +113,7 @@ unadjusted p-values are each candidate's own and are not adjusted.
 `cleverly` marks an estimate *experimental* when no simulation study covers a fit like it, so its
 interval has no checked coverage. Each candidate's estimate takes the mark of its own fit. A
 `support` column appears in `to_frame()` only when some candidate's estimate is experimental, and
-[read the support label](results-assessment.md#read-the-support-label) explains the labels. That
+[read the support label](reading-output.md#read-the-support-label) explains the labels. That
 column describes each candidate's estimate, not the false discovery claim above.
 
 ## What the data must look like

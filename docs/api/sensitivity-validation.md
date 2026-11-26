@@ -8,7 +8,7 @@ moderate retargets unless you ask for them. Each facade's `capabilities` lists e
 whether the fit supports it, and why not.
 
 The functions listed below take the result as their first argument. [Sensitivity
-analysis](../user-guide/sensitivity.md) and [Try to break the result](../user-guide/refutation.md)
+analysis](../user-guide/sensitivity.md) and [Refutation](../user-guide/refutation.md)
 show the common calls, and [validation
 methods](../technical-reference/validation-methods.md) states the conditions of each.
 

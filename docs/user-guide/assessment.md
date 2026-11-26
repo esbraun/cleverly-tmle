@@ -1,4 +1,4 @@
-# Check a fitted result
+# Diagnostics
 
 An effect estimate rests on two models, and a fitted result stores what it takes to check them. The
 outcome model predicts the outcome from the treatment and the covariates, and the treatment model
@@ -8,16 +8,17 @@ the outcome model leaves, when the treatment model is close to right. That step 
 one over its predicted chance of its own treatment, so a row with a near-zero chance gets an extreme
 weight.
 
-The checks on this page ask whether the two models predict well, whether the weights are extreme,
-whether the correction step finished its job, and how strong a missing confounder would have to be
-to change the answer. A confounder is a variable that affects both the treatment and the outcome,
-and a missing one is a confounder the data do not record. `assess()` runs the checks together and
-prints one report.
+Diagnostics ask whether the two models predict well, whether the weights are extreme, and whether
+the correction step finished its job. They read what the fit stored, so most of them are fast.
+`assess()` runs them together with the refutation tests and the sensitivity analyses and prints one
+combined report; this page reads that report and the diagnostics in it.
+[Refutation](refutation.md) explains the refutation rows and [sensitivity
+analysis](sensitivity.md) the rows about a missing confounder, a variable that affects both the
+treatment and the outcome but is not in the data.
 
 A clean report says that these checks found no problem with how the estimate was computed. It does
 not show that the effect is causal. That needs every confounder to be among the covariates you
-adjusted for, and no check can see a variable the data do not hold. [Sensitivity
-analysis](sensitivity.md) asks how strong such a variable would have to be.
+adjusted for, and no check can see a variable the data do not hold.
 
 ## Run every check at once
 
@@ -126,26 +127,12 @@ next step.
 
 ### Read the confounding rows
 
-The `unmeasured confounding` row describes a missing confounder by two strengths, each a share
-between 0 and 1. The outcome-side strength is the share of the outcome's variation, left after
-adjusting for the covariates, that the confounder would explain; the treatment-side strength is how
-much it would add to predicting who got the treatment. Here a confounder would need both strengths
-at about half (0.514) to move the estimate to 0. Near 0 a weak confounder could erase the effect;
-near 1 only an overwhelming one could. The `robustness value` row repeats that number on its own,
-and the `confounding bound inputs` and `confounding grid` rows hold tables you open with
-`battery.report("elements")` and `battery.report("contour")`.
-
-The `E-value` row measures strength as a risk ratio, the chance of something in one group divided by
-the chance in another. To explain the estimate away, a missing confounder would need to make both
-the treatment and the outcome about 3.5 times as likely between its levels, beyond the measured
-covariates. On a continuous outcome like this one, the effect is first converted to a risk ratio,
-approximately. An E-value of 1 means no confounding is needed.
-
-Neither number has a fixed cutoff for "robust enough". For the strengths and the robustness value,
-the package's yardstick is a covariate you did record: the covariate benchmark asks what a missing
-confounder as strong as that covariate could do. The E-value has no such yardstick in the package;
-judge it against how strongly your recorded covariates relate to the treatment and the outcome.
-[Sensitivity analysis](sensitivity.md) shows both.
+The `unmeasured confounding`, `robustness value`, `confounding bound inputs`, `confounding grid`
+and `E-value` rows are sensitivity analyses: each says how strong a missing confounder would have
+to be to move the estimate. Here a confounder would need both of its strengths at about half
+(0.514) to move the estimate to 0, or a risk ratio of about 3.5 with both the treatment and the
+outcome. [Sensitivity analysis](sensitivity.md) explains each number and how to judge it against a
+covariate you recorded.
 
 ### Run the slower checks before you report
 
@@ -211,7 +198,7 @@ as here. Healthy looks like a shuffled-treatment average near 0 and refits that 
 as the standard error predicts. Open the full tables with `full.report("refute")`,
 `full.report("benchmark")` and `full.report("marginal_bounds")`. On this fit the worst-case range
 stays above 0 even when a missing confounder could double or halve each row's odds of treatment.
-[Try to break the result](refutation.md) reads the refutation table, and [Sensitivity
+[Refutation](refutation.md) reads the refutation table, and [Sensitivity
 analysis](sensitivity.md) reads the benchmark and the bounds.
 
 ### What each status means
@@ -521,6 +508,75 @@ arms at baseline. At each target time it also compares the arms among the people
 known (an event seen, or follow-up past that time), and those people with their whole arm. The
 [plotting reference](../api/plotting.md#fits-over-time-and-with-external-data) describes each view.
 
+### Overlap at each time point
+
+To see where support thins out in this fit, plot each unit's predicted chance of the
+plan's treatment at each time point:
+
+```python
+from cleverly.plotting import overlap
+
+fig = overlap(regimes, regimen="always", censoring=True)
+```
+
+Each top panel holds the units still following the plan up to that time point. Those who then took
+the plan's treatment sit above the axis, and those who did not sit below. Bars near 0 on the
+horizontal axis mark units with little chance of the plan's treatment. When few of them sit above
+the axis, the plan was rarely followed by units like them, and those who did follow it carry large
+weights. The lower panels show each time point's chance of staying in the study, among those who
+took the plan's treatment. The fit's limits apply to the product over time points, which
+`cleverly.plotting.weights(regimes)` draws, so no limit line is drawn here.
+
+`cleverly.plotting.learners(regimes)` and `cleverly.plotting.calibration(regimes)` draw the learner
+weights and calibration of each prediction model by time point.
+
+### Other diagnostics of a fit over time
+
+Longitudinal results provide cumulative support, targeting-score, and nuisance-model reports by
+node. Call `regimes.diagnostics.support()` for leverage and truncation by stage.
+
+The nuisance report separates four roles. Each fitted treatment and censoring model appears once
+per node. Outcome and pseudo-outcome models appear per fitted regimen, cause, horizon, and node.
+Each row labels its loss as `out_of_fold` or `in_sample`.
+
+The report uses weighted negative log likelihood for treatment and censoring. It uses weighted
+Brier loss for a binary final target and weighted mean squared error otherwise. Earlier
+pseudo-outcomes use weighted mean squared error. A complete-data fit records why no censoring
+learner appears in `nuisance.omissions`.
+
+Use an explicit grid to describe point-estimate movement across cumulative mechanism bounds:
+
+```python
+curve = regimes.diagnostics.truncation_curve(bounds=[0.01, (0.05, 0.95)])
+```
+
+A scalar `b` means `(b, 1)`, not the point-treatment shorthand `(b, 1 - b)`. The pair bounds each
+cumulative treatment and censoring product after multiplication. The diagnostic keeps raw
+mechanism predictions fixed and reruns the complete backward recursion at every pair. It refits
+every bound-dependent outcome or pseudo-outcome regression and targeting update.
+
+The curve is descriptive. It reports no standard error, confidence interval, preferred bound, or
+pass threshold. It refuses `mechanism=True`, which is a point-treatment option. It also refuses a
+learner it cannot replay.
+[Replay-only unavailability](../technical-reference/scope-and-refusals.md#replay-only-unavailability)
+states the `random_state` rule each outcome and pseudo-outcome learner must satisfy.
+
+[Truncation stability](../technical-reference/validation-methods.md#truncation-stability) holds the
+returned frame's columns and its two score-cell counting rules.
+
+A combined report requires both the grid and permission for expensive refits:
+
+```python
+report = regimes.diagnostics.run_all(
+    include_refits=True,
+    arguments={"truncation_curve": {"bounds": [0.01, 0.05]}},
+)
+```
+
+Refutation tests and sensitivity analyses of a fit over time have sections on their own pages:
+[refutation of a fit over time](refutation.md#refutation-of-a-fit-over-time) and [sensitivity
+analysis of a fit over time](sensitivity.md#sensitivity-analysis-of-a-fit-over-time).
+
 ### The model report on other fits
 
 For a fit of a treatment over time, `nuisance.rows` covers every stored model fit. Each fitted
@@ -628,7 +684,7 @@ fixed bound on the cumulative treatment and censoring probabilities, and reports
 or interval. Before the grid runs, a check at the fitted bound must reproduce every reported
 estimate exactly, or the curve is unavailable. Its frame names the lower endpoint `lower_bound`,
 where the frame of a treatment given once names it `bound`.
-[Diagnostics](longitudinal.md#diagnostics) on the longitudinal page gives the rest, and [truncation
+[Other diagnostics of a fit over time](#other-diagnostics-of-a-fit-over-time) gives the rest, and [truncation
 stability](../technical-reference/validation-methods.md#truncation-stability) holds the column table
 and the two counting rules.
 
