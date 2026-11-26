@@ -396,7 +396,7 @@ AREAS: tuple[Area, ...] = (
             S + "targeting_curves.py",
         ),
         (TR + "conditional-effects.md", UG + "conditional-effects.md"),
-        see=(EX + "conditional-effects.ipynb",),
+        see=(EX + "conditional-effects.ipynb", EX + "subgroup-effects.ipynb"),
     ),
     _area(
         "working-model projections",
@@ -588,6 +588,11 @@ AREAS: tuple[Area, ...] = (
         see=(EX + "point-treatment-tmle.ipynb", EX + "survey-nonresponse.ipynb"),
     ),
     _area("pilot data", (S + "datasets/pilot.py",), see=(EX + "randomized-pilot.ipynb",)),
+    _area(
+        "home-support data",
+        (S + "datasets/home_support.py",),
+        see=(EX + "subgroup-effects.ipynb",),
+    ),
     _area(
         "population-impact data",
         (S + "datasets/population_impact.py",),

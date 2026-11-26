@@ -830,7 +830,8 @@ conditional average treatment effect, the average effect among people with the s
 those columns. [Conditional effects](conditional-effects.md) gives the workflow.
 
 [Who gains most from a coupon](../examples/conditional-effects.ipynb) fits an effect that changes
-with age.
+with age, and [effects by group](../examples/subgroup-effects.ipynb) fits one effect per living
+situation, with an interval for each group and for their differences.
 
 ## Controlled direct effects
 
@@ -877,7 +878,8 @@ treatment and the covariates are known. Every patient must have had a real chanc
 treatment, and of the held value of the intermediate under either treatment.
 [Conditional effects](../technical-reference/conditional-effects.md), section "Controlled direct
 effects", states the conditions. [Gain over current practice](../examples/population-impact.ipynb)
-reports one beside the population-impact estimands.
+reports one beside the population-impact estimands, and [effects by group](../examples/subgroup-effects.ipynb)
+fits one for each living situation, with a `ConditionalContrast` as its contrast.
 
 See the [technical implementation matrix](../technical-reference/index.md) for assumptions and
 citations for every family.
