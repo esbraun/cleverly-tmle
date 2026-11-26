@@ -79,7 +79,7 @@ Two kinds of fit check their memory before they train anything: treatments over 
 with an error when that is more than the memory the machine has free. Pass `max_memory_bytes=` to
 `estimate` to set the limit yourself, higher or lower; where the system does not report free
 memory, as on macOS, only a limit you set is checked. Every other fit refuses the keyword, as the
-[settings reference](settings.md) shows. The limit changes how a fit runs, never the number it
+[settings reference](settings.md#seeds-run-labels-and-parallel-jobs-runtime) shows. The limit changes how a fit runs, never the number it
 returns.
 
 | fit | what the limit controls | read more |
