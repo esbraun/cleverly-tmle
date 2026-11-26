@@ -55,8 +55,10 @@ at the rule's cutoff so that no node straddles the rule's jump.  The values are 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from functools import cache
+from types import MappingProxyType
 from typing import Any
 
 import numpy as np
@@ -76,14 +78,16 @@ __all__ = [
     "two_decision_rules_protocol",
 ]
 
-#: The ``LTMLE.fit`` roles of the columns of :func:`make_two_decision_rules`.
-TWO_DECISION_COLUMNS: dict[str, Any] = {
-    "outcome": "home_30",
-    "treatment": ["navigation", "telemonitoring"],
-    "baseline": ["readiness", "lives_alone"],
-    "time_varying": [[], ["self_care_14"]],
-    "censoring": ["tracked_14", "tracked_30"],
-}
+#: The ``LTMLE.fit`` roles of the columns of :func:`make_two_decision_rules`, read-only.
+TWO_DECISION_COLUMNS: Mapping[str, Any] = MappingProxyType(
+    {
+        "outcome": "home_30",
+        "treatment": ("navigation", "telemonitoring"),
+        "baseline": ("readiness", "lives_alone"),
+        "time_varying": ((), ("self_care_14",)),
+        "censoring": ("tracked_14", "tracked_30"),
+    }
+)
 
 # The coefficients, on the logit scale except the mean of ``self_care_14``.
 _G1 = (0.8, -0.3)  # navigation: readiness, lives_alone
@@ -489,7 +493,7 @@ def learned_regimen_truth(result: Any, frame: Any) -> float:
         data.outcome_name == roles["outcome"]
         and tuple(data.treatment_names) == tuple(roles["treatment"])
         and tuple(data.baseline_names) == tuple(roles["baseline"])
-        and tuple(map(tuple, data.time_varying_names)) == tuple(map(tuple, roles["time_varying"]))
+        and tuple(map(tuple, data.time_varying_names)) == roles["time_varying"]
         and tuple(data.censoring_names) == tuple(roles["censoring"]),
         "the fit must declare the roles of TWO_DECISION_COLUMNS, with the same columns in the "
         "same order",
