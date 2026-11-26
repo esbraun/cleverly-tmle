@@ -4289,13 +4289,19 @@ After the fits, the step-down max-T refuses (`CapabilityError`) a row whose test
 reference, a row whose curve has zero variance, and a correlation whose smallest eigenvalue is
 below `CORRELATION_TOLERANCE = 1e-8`, naming the rows that load on it (duplicate candidates are
 one such case). The result records `method`, `error_rate`, `correlation` (in entry order,
-read-only), `multiplier_draws` and `multiplier_seed`.
+read-only), `multiplier_draws` and `multiplier_seed`. The Monte Carlo error of an adjusted
+p-value near 0.05 is about 0.002 at 10,000 draws and 0.007 at the minimum of 1,000, and another
+seed moves a value by that error. A fit widened by a stopping rule (`rule_widened`) is not keyed
+separately: its margin-reduced statistic $\max(0, |t| - \text{margin}/\widehat{\mathrm{SE}})$
+is at most the Wald statistic, so the joint maximum stays conservative.
 
 **Benjamini-Hochberg** (`adjustment="bh"`) aims at the false discovery rate and records no
-correlation or draws. Its claim is experimental in every configuration: the theorem needs
-independent or positively regression-dependent test statistics (Benjamini and Yekutieli 2001),
-two-sided tests of correlated estimates satisfy neither, and correlated two-sided Gaussian tests
-can exceed its rate (Dobriban 2026).
+correlation or draws. Its claim is experimental in every configuration. Benjamini and Yekutieli
+(2001, Theorem 1.2) cover independent or positively regression-dependent (PRDS) statistics.
+Two-sided statistics of correlated estimates are PRDS only under special structures, such as
+$|Z|$ multivariate totally positive of order 2, and nothing in the fits guarantees one, so no
+theorem covers Benjamini-Hochberg at the arbitrary correlation `variable_importance` faces.
+Correlated two-sided Gaussian tests can exceed its rate (Dobriban 2026).
 
 **The adjustment's support label.** `result.adjustment_support` returns a `Support` from
 `variable_importance_support`, which reads the run's `result.adjustment_key`, an `AdjustmentKey`

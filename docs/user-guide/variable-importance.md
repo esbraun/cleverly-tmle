@@ -112,8 +112,10 @@ together from each fit's per-row contributions to its estimate, then simulates 1
 statistics with that pattern and no real effects (`multiplier_draws=`, seeded by
 `multiplier_seed=0`, so a rerun gives the same p-values). A row's adjusted p-value is the share of
 those simulated sets whose largest statistic, among the rows not yet called significant, reaches
-the row's own. The guarantee is a large-sample one: it holds as the number of rows grows, when each
-row's own test is correct.
+the row's own. The guarantee is a large-sample one: it holds as the number of people grows, with the
+list of candidates fixed, when each candidate's own test is correct. Because the p-values come from
+a simulation, they carry a small random error, about 0.002 near 0.05 with 10,000 draws, and
+another `multiplier_seed` can move them by that much.
 
 `ranking.adjustment_support` labels that claim. It reads *experimental* for every run until the
 simulation study that measures the family-wise error rate has run; the study is declared and its
@@ -125,10 +127,11 @@ probe. The summary states the reason.
 
 `adjustment="bh"` applies the Benjamini-Hochberg adjustment instead, which aims at the false
 discovery rate. Its claim always reads experimental: its proof needs tests that are independent or
-that move together in one direction, and two-sided tests of related estimates are neither. With
-such tests the false discovery rate can exceed the level you chose, as the
-[method reference](../technical-reference/validation-methods.md#variable-importance) shows with
-its sources.
+that depend on each other in a particular positive way. Two-sided tests of related estimates have
+that property only for special patterns of correlation, and nothing guarantees one here, so no
+proof covers a run like this. With some patterns the false discovery rate exceeds the level you
+chose, as the [method reference](../technical-reference/validation-methods.md#variable-importance)
+shows with its sources.
 
 The step-down max-T refuses weights estimated by an earlier model (`weights_estimated=True`) and
 clustered data with fewer than 40 clusters before any fit; `adjustment="bh"` runs in both cases.

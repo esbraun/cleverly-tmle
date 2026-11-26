@@ -379,8 +379,11 @@ def seed(law: str, replicate: int, *, pilot: bool = False) -> int:
     return stream_seed(STUDY, study.PILOT_STREAM if pilot else STREAM, law, replicate)
 
 
-def requested(law: str) -> int:
-    """The declared property count of a law.
+def require_recorded_pilots(what: str) -> None:
+    """Refuse ``what`` before the declaration commit sets ``DECLARED_REPLICATES``.
+
+    The property differential replaces this guard while it builds synthetic rows, which fit
+    nothing.
 
     Raises
     ------
@@ -388,14 +391,35 @@ def requested(law: str) -> int:
         Before the declaration commit sets
         :data:`~tests.studies.variable_importance.DECLARED_REPLICATES`.
     """
-    if law not in study.GATED_LAWS:
-        return study.REPORTED_REPLICATES
     if study.DECLARED_REPLICATES is None:
         raise RuntimeError(
-            f"{study.SLUG} is declared and has not run: the declared run waits for the "
-            "declaration commit, which sets DECLARED_REPLICATES from the committed pilot"
+            f"{study.SLUG} is declared and has not run: {what} waits for the declaration "
+            "commit, which sets DECLARED_REPLICATES from the committed pilot"
         )
-    return study.DECLARED_REPLICATES
+
+
+def planned(law: str) -> int:
+    """A law's property count: the declared one, or the provisional one before the declaration.
+
+    The declared cells and the property differential read it; the run reads
+    :func:`requested`, which refuses before the declaration.
+    """
+    if law not in study.GATED_LAWS:
+        return study.REPORTED_REPLICATES
+    return study.DECLARED_REPLICATES or study.PROVISIONAL_REPLICATES
+
+
+def requested(law: str) -> int:
+    """The declared property count of a law.
+
+    Raises
+    ------
+    RuntimeError
+        Before the declaration commit (:func:`require_recorded_pilots`), for a gated law.
+    """
+    if law in study.GATED_LAWS:
+        require_recorded_pilots("the declared run")
+    return planned(law)
 
 
 def payloads(
@@ -408,7 +432,7 @@ def payloads(
     """Every key, law by law; the witness rides on the first keys of its law (not the pilot)."""
     keys: list[_Key] = []
     for law in study.LAW_NAMES if laws is None else laws:
-        total = study.PILOT_REPLICATES if pilot else requested(law)
+        total = study.PILOT_REPLICATES if pilot else planned(law)
         count = total if budget is None else min(budget, total)
         for replicate in range(count):
             witness = (
@@ -503,8 +527,10 @@ def _fit_all(
         seed_of=lambda key: key[0][3],
         checkpoint=checkpoint,
     )
-    rows = pd.DataFrame([row for value in outcomes for row in value[0]])
-    records = pd.DataFrame([record for value in outcomes for record in value[1]])
+    # The property differential's synthetic fit returns each key's rows alone.
+    pairs = [value if isinstance(value, tuple) else (value, []) for value in outcomes]
+    rows = pd.DataFrame([row for value in pairs for row in value[0]])
+    records = pd.DataFrame([record for value in pairs for record in value[1]])
     return rows, records
 
 
@@ -562,22 +588,23 @@ def formatted(records: pd.DataFrame) -> pd.DataFrame:
 
 
 def generate_property_artifacts(
-    *, n_jobs: int = STUDY_JOBS
+    *, n_jobs: int = STUDY_JOBS, budget: int | None = None
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    """Fit every declared key; the rows, and the per-replicate artifact.
+    """Fit every declared key, or the first ``budget`` of each law; rows and replicates.
 
     Raises
     ------
     RuntimeError
-        Before the declaration commit (:func:`requested`).
+        Before the declaration commit (:func:`require_recorded_pilots`).
     """
-    rows, records = _fit_all(payloads(), n_jobs)
+    require_recorded_pilots("the declared run")
+    rows, records = _fit_all(payloads(budget=budget), n_jobs)
     return _ordered(with_controls(rows)), {study.REPLICATES_FILE: formatted(records)}
 
 
-def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    """Fit every declared key's rows."""
-    return generate_property_artifacts(n_jobs=n_jobs)[0]
+def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
+    """Fit every declared key's rows, or the first ``budget`` of each law."""
+    return generate_property_artifacts(n_jobs=n_jobs, budget=budget)[0]
 
 
 # ------------------------------------------------------------------------ verdicts
@@ -703,8 +730,10 @@ PROPERTY_RULES = (
 )
 
 #: The property differential's declared size: each cell capped at this many replicates, on
-#: :func:`differential_cells` only (review finding 11).
-DIFFERENTIAL_BUDGET: Final[int] = 200
+#: :func:`differential_cells` only (review finding 11). At 200 the 99% Clopper-Pearson interval of
+#: a 0.95 coverage cannot lie inside [0.92, 0.98], so the SE-ratio clause of the calibration rule
+#: could never decide a verdict alone; at 1,000 it binds, on the 19 cells of the two groups.
+DIFFERENTIAL_BUDGET: Final[int] = 1_000
 #: The whole groups the differential reads: one complete null and one mixed law, in sample,
 #: which hold every clause of both rules (band, ceiling, both controls, floor, one-sided,
 #: calibration and its derived controls).
@@ -729,10 +758,7 @@ def _logistic() -> LogisticRegression:
 def declared_cells() -> tuple[PropertyCell, ...]:
     """Every gated cell, each naming its law, its estimand and its stream root.
 
-    Raises
-    ------
-    RuntimeError
-        Before the declaration commit (:func:`requested`).
+    Before the declaration each gated cell carries the provisional count (:func:`planned`).
     """
     out = []
     for configuration in study.CONFIGURATIONS:
@@ -751,7 +777,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                             outcome_learner=_logistic,
                             treatment_learner=_logistic,
                             n=study.N,
-                            replicates=requested(law),
+                            replicates=planned(law),
                             seed=seed(law, 0),
                             role=role if name == names[0] else "control",
                             estimand="fwer"

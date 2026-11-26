@@ -13109,6 +13109,194 @@ _mdt_cells[("cluster_warning", "GT__eager_control")] = (
 )
 STUDY_CELLS.update({(_MDT_SLUG, family, key): words for (family, key), words in _mdt_cells.items()})
 
+#: ``variable-importance`` (X125, declared): the step-down max-T adjustment of
+#: ``variable_importance`` on six laws of ten binary candidates and a three-level ``Z``, in sample
+#: and with five folds. Mirrored from ``tests/studies/variable_importance.py`` and its law module,
+#: which this module cannot import; ``tests/unit/test_variable_importance_design.py`` checks that
+#: every declared scenario, estimand, family and cell has an entry here.
+_VI_SLUG = "variable-importance"
+_VI_LAWS = {
+    "independent_null": "no candidate has an effect, and the candidates are independent given W",
+    "independent_mixed": (
+        "X1 to X3 raise the outcome log-odds by 0.6, X4 lowers it by 0.6 and Z raises it by 0.35 "
+        "a level; the candidates are independent given W"
+    ),
+    "negative_pairs_null": (
+        "no candidate has an effect; five candidate pairs are tied, giving test correlations "
+        "near -0.51"
+    ),
+    "nulls_beside_signals": (
+        "X1 to X3 raise the log-odds by 0.6 and X4 lowers it by 0.6; null pairs are tied, each "
+        "signal is tied to a null, and Z to X1"
+    ),
+    "dobriban_like": (
+        "X1 and X2 raise the log-odds by 0.36 and X3 and X4 by 0.65; the nulls are tied to each "
+        "other negatively and to each signal positively (the Dobriban sign pattern)"
+    ),
+    "collinear_pair": (
+        "X1 raises the log-odds by 0.6 and is tied to the null X2 (correlation near 0.9), a "
+        "positivity stress; reported"
+    ),
+}
+_VI_CONFIGURATIONS = {
+    "in_sample": "TMLE with unpenalized logistic outcome and treatment models, in sample",
+    "cross_fitted": "TMLE with unpenalized logistic outcome and treatment models, five folds",
+}
+_VI_ALPHAS = {"alpha05": 0.05, "alpha10": 0.10}
+_VI_GATED = (
+    "independent_null",
+    "independent_mixed",
+    "negative_pairs_null",
+    "nulls_beside_signals",
+    "dobriban_like",
+)
+_VI_COMPLETE_NULLS = ("independent_null", "negative_pairs_null")
+_VI_ROWS = (*(f"X{j}" for j in range(1, 11)), "Z1", "Z2")
+_VI_POWER = {
+    "independent_mixed": ("X1", "X2", "X3", "X4", "Z2"),
+    "nulls_beside_signals": ("X1", "X2", "X3", "X4"),
+    "dobriban_like": ("X3", "X4"),
+}
+_VI_MODERATE = {
+    "independent_mixed": ("Z1",),
+    "dobriban_like": ("X1", "X2"),
+    "collinear_pair": ("X1",),
+}
+_VI_PROCEDURES = {
+    "bh": "Benjamini-Hochberg",
+    "by": "Benjamini-Yekutieli",
+    "max_t": "the step-down max-T",
+}
+_VI_REPORTED = "none. The row is reported"
+
+
+def _vi_row_words(row: str) -> str:
+    if row.startswith("Z"):
+        return f"the ATE of Z at level {row[1]} against 0"
+    return f"the ATE of {row}"
+
+
+for _law, _law_words in _VI_LAWS.items():
+    for _configuration, _configuration_words in _VI_CONFIGURATIONS.items():
+        STUDY_SCENARIOS[(_VI_SLUG, f"{_law}__{_configuration}")] = (
+            f"{_law_words}; {_configuration_words}, eleven candidates adjusted for W and each "
+            "other, n = 4,000"
+        )
+for _row in _VI_ROWS:
+    STUDY_ESTIMANDS[(_VI_SLUG, _row if not _row.startswith("Z") else f"Z:{_row[1]}")] = (
+        f"{_vi_row_words(_row)}, adjusted for W and the other candidates"
+    )
+PROPERTIES.update(
+    {
+        "fwer_calibration": (
+            "under a complete null, the step-down max-T's family-wise error rate reaches its level: "
+            "the chance of any adjusted p-value at or below alpha"
+        ),
+        "family_wise_error": (
+            "the step-down max-T keeps the family-wise error rate, the chance of any false "
+            "rejection among the exact nulls, at or below its level"
+        ),
+        "false_discovery": (
+            "the false discovery proportion of the Benjamini-Hochberg, Benjamini-Yekutieli and "
+            "max-T rejections, reported only"
+        ),
+        "correlation_error": (
+            "the distance between the estimated correlation of the rows and the exact one, "
+            "reported only"
+        ),
+        "adjustment_witness": (
+            "the rows of the run without adjustment for the other candidates, read against that "
+            "run's own truths, reported only"
+        ),
+    }
+)
+_vi_cells: dict[tuple[str, str], tuple[str, str]] = {}
+for _configuration, _configuration_words in _VI_CONFIGURATIONS.items():
+    for _law, _law_words in _VI_LAWS.items():
+        _where = f"law {_law}, {_configuration_words}, n = 4,000"
+        for _label, _alpha in _VI_ALPHAS.items():
+            _stem = f"{_law}__{_configuration}__{_label}"
+            _band = f"{_alpha * 0.5:g} to {_alpha * 1.5:g}"
+            if _law in _VI_COMPLETE_NULLS:
+                _vi_cells[("fwer_calibration", _stem)] = (
+                    f"{_where}: any max-T adjusted p-value at or below {_alpha:g}",
+                    f"the 99% Clopper-Pearson interval inside {_band}",
+                )
+                _vi_cells[("family_wise_error", f"{_stem}__unadjusted")] = (
+                    f"{_where}: any raw p-value at or below {_alpha:g}",
+                    f"must fail: the lower 99% limit above {_alpha * 1.5:g}",
+                )
+                _vi_cells[("family_wise_error", f"{_stem}__shrunken_se")] = (
+                    f"{_where}: each statistic divided by 0.8, then the step-down on the fit's own "
+                    "draws",
+                    f"must fail: the lower 99% limit above {_alpha * 1.5:g}",
+                )
+            elif _law in _VI_GATED:
+                _vi_cells[("family_wise_error", _stem)] = (
+                    f"{_where}: any max-T adjusted p-value of an exact null at or below {_alpha:g}",
+                    f"the upper 99% limit at or below {_alpha * 1.5:g}",
+                )
+            else:
+                _vi_cells[("family_wise_error", _stem)] = (
+                    f"{_where}: any max-T adjusted p-value of an exact null at or below {_alpha:g}",
+                    _VI_REPORTED,
+                )
+        for _row in _VI_POWER.get(_law, ()):
+            _gated = not (_configuration == "cross_fitted" and _row.startswith("Z"))
+            _vi_cells[("power", f"{_law}__{_configuration}__{_row}")] = (
+                f"{_where}: {_vi_row_words(_row)} rejected by its max-T adjusted p-value at 0.05",
+                "the lower 99% limit at or above 0.80"
+                if _gated
+                else "none. The three-level rows of a cross-fitted run have no support row, so "
+                "the row is reported",
+            )
+        for _row in _VI_MODERATE.get(_law, ()):
+            _vi_cells[("power", f"{_law}__{_configuration}__{_row}")] = (
+                f"{_where}: {_vi_row_words(_row)} rejected by its max-T adjusted p-value at 0.05",
+                _VI_REPORTED,
+            )
+        if _law in ("independent_mixed", "nulls_beside_signals"):
+            _vi_cells[("power", f"{_law}__{_configuration}__X4__one_sided")] = (
+                f"{_where}: the upper one-tail p-value of X4's statistic, whose effect is "
+                "negative, then the step-down",
+                "must fail: the upper 99% limit below 0.80",
+            )
+        for _procedure, _procedure_words in _VI_PROCEDURES.items():
+            for _q in ("q05", "q10"):
+                _vi_cells[("false_discovery", f"{_law}__{_configuration}__{_procedure}__{_q}")] = (
+                    f"{_where}: the false discovery proportion of {_procedure_words} at "
+                    f"q = {int(_q[1:]) / 100:g}",
+                    _VI_REPORTED,
+                )
+        _vi_cells[("correlation_error", f"{_law}__{_configuration}")] = (
+            f"{_where}: the Frobenius distance between the estimated and the exact correlation",
+            _VI_REPORTED,
+        )
+    for _row in ("X1", "X5"):
+        _label = f"{_row}_{_configuration}"
+        _where = (
+            f"law nulls_beside_signals, {_configuration_words}, n = 4,000: {_vi_row_words(_row)}"
+        )
+        _vi_cells[("interval_calibration", f"{_label}__correctly_specified")] = (
+            _where,
+            "SE ratio and coverage intervals both inside their calibration bands",
+        )
+        _vi_cells[("interval_calibration", f"{_label}__shrunken_se_control")] = (
+            f"{_where}, each SE multiplied by 0.8",
+            "the SE-ratio interval must fall below the calibration band",
+        )
+        _vi_cells[("interval_calibration", f"{_label}__noise_control")] = (
+            f"{_where}, one exact-SD unit of independent noise added to each estimate",
+            "the SE-ratio interval must fall below the calibration band",
+        )
+    for _row in _VI_ROWS:
+        _vi_cells[("adjustment_witness", f"{_configuration}__{_row}")] = (
+            f"law nulls_beside_signals, {_configuration_words}, adjusted for W only: "
+            f"{_vi_row_words(_row)}, against that run's own truth",
+            _VI_REPORTED,
+        )
+STUDY_CELLS.update({(_VI_SLUG, family, key): words for (family, key), words in _vi_cells.items()})
+
 #: ``few-cluster-floor-tmle`` and ``few-cluster-floor-cross-fitted-ltmle`` (X54 parts (a) to
 #: (c)): the interval floor of each fit family and the part (c) comparison of two small-sample
 #: constructions with the shipped interval. Mirrored from ``tests/studies/few_cluster_floor_tmle.py``

@@ -4959,7 +4959,10 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES: tuple[str, ...] = ("tests.studies.mtp_density_tails_properties",)
+UNCOMMITTED_MODULES: tuple[str, ...] = (
+    "tests.studies.mtp_density_tails_properties",
+    "tests.studies.variable_importance_properties",
+)
 
 
 def _property_modules() -> list[Any]:

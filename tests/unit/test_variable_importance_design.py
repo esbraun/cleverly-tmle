@@ -21,6 +21,7 @@ from cleverly.variable_importance import _bh_adjust, _null_draws, _step_down
 from tests.studies import variable_importance as study
 from tests.studies import variable_importance_law as law_module
 from tests.studies import variable_importance_properties as properties
+from tests.studies.evidence import descriptions
 from tests.studies.evidence import property_failures as pf
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 from tests.studies.evidence.registry import ROOT, registered
@@ -369,7 +370,7 @@ def test_the_differential_names_whole_gated_groups() -> None:
         "power",
         "interval_calibration",
     }
-    assert properties.DIFFERENTIAL_BUDGET == 200
+    assert properties.DIFFERENTIAL_BUDGET == 1_000
 
 
 # ------------------------------------------------------------------------ one key of each path
@@ -435,3 +436,53 @@ def test_one_primary_replicate_writes_the_declared_rows() -> None:
     rows = study._replicate(key, study._draw(key))
     assert [row["estimand"] for row in rows] == list(study.ESTIMANDS)
     assert all(set(row) == set(PRIMARY_COLUMNS) for row in rows)
+
+
+def test_the_controls_are_recomputed_from_the_replicates_artifact(one_key) -> None:
+    """A re-summary reads the in-fit controls back from the stored record (review N8).
+
+    The correlation is stored to eight digits, so the check is a tolerance, not an identity.
+    """
+    _, rows, records = one_key
+    record = properties.formatted(pd.DataFrame(records[:1])).iloc[0]
+    labels = [study.row_label(name) for name in study.ESTIMANDS]
+    m = len(labels)
+    correlation = np.eye(m)
+    for i in range(m):
+        for j in range(i + 1, m):
+            value = float(record[f"r_{labels[i]}_{labels[j]}"])
+            correlation[i, j] = correlation[j, i] = value
+    pvalues = np.array([float(record[f"p_{label}"]) for label in labels])
+    psi = np.array([float(record[f"psi_{label}"]) for label in labels])
+    distance = stats.norm.isf(pvalues / 2.0)
+    draws = _null_draws(correlation, 10_000, 0)
+    shrunken = properties.stepped(distance / study.SHRUNKEN_FACTOR, draws)
+    one_sided = properties.stepped(
+        stats.norm.isf(stats.norm.sf(np.sign(psi) * distance) / 2.0), draws
+    )
+    by_cell = {row["cell"]: row for row in rows}
+    stem = "nulls_beside_signals__in_sample"
+    nulls = np.array([study.is_null("nulls_beside_signals", name) for name in study.ESTIMANDS])
+    for alpha in study.ALPHAS:
+        cell = f"{stem}__{study.alpha_label(alpha)}"
+        assert by_cell[cell]["estimate"] >= shrunken[nulls].min() - 1e-3
+    x4 = study.ESTIMANDS.index("X4")
+    assert by_cell[f"{stem}__X4__one_sided"]["rejected"] == int(one_sided[x4] <= 0.05)
+    maxt = np.array([float(record[f"maxt_{label}"]) for label in labels])
+    np.testing.assert_allclose(properties.stepped(distance, draws), maxt, atol=1e-3)
+
+
+def test_every_cell_scenario_and_estimand_is_described() -> None:
+    """The evidence tables read their words from descriptions.py, so each key must resolve."""
+    for family, cells in study.PROPERTY_CELLS.items():
+        assert descriptions.claim(family)
+        for cell in cells:
+            tested, required = descriptions.cell(family, cell, slug=study.SLUG)
+            assert tested and required
+    for derived in properties.declared_cells():
+        tested, required = descriptions.cell(derived.property, derived.cell, slug=study.SLUG)
+        assert tested and required
+    for scenario in study.SCENARIOS:
+        assert descriptions.scenario(scenario, slug=study.SLUG)
+    for name in (*(f"X{j}" for j in range(1, 11)), "Z:1", "Z:2"):
+        assert descriptions.estimand(name, slug=study.SLUG)

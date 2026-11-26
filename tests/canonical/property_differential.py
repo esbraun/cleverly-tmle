@@ -94,7 +94,7 @@ from tests.studies.evidence.registry import StudyRecord, registered
 DIFFERENTIAL_BOOTSTRAP = 200
 
 #: The property modules that run on :func:`synthetic_rows`: each module with no committed rows
-#: (``mtp_density_tails_properties``), and ``longitudinal_sdr_properties``, whose committed rows
+#: (``mtp_density_tails_properties``, ``variable_importance_properties``), and ``longitudinal_sdr_properties``, whose committed rows
 #: leave the clause ``P_D large-size bias bound under the small`` without a binding witness. The
 #: three X40 studies (``mtp-boundaries``, ``mtp-pricing`` and ``mtp-tuning``), the three X39
 #: long-horizon studies, ``boundary-node-ltmle``, ``few-cluster-fold-variance``, the two
@@ -104,6 +104,7 @@ DIFFERENTIAL_BOOTSTRAP = 200
 SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
     "tests.studies.mtp_density_tails_properties",
+    "tests.studies.variable_importance_properties",
 )
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.

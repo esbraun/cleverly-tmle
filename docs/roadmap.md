@@ -718,11 +718,11 @@ Each follows `docs/development/example-notebooks.md`, on simulated data with a k
 ### X125. Registered study of variable importance
 
 `variable_importance` fits the causal estimator once per candidate covariate and adjusts the
-p-values by Benjamini and Hochberg, a repeated-sampling multiplicity claim that no registered study
-measures. A source read on false-discovery control across candidate fits that share data comes
-first. Then a declared study with null, non-null and correlated null candidates measures the
-false-discovery rate, power and per-candidate coverage. Until it registers, the multiplicity claim
-reads experimental.
+p-values by default with a studentized step-down max-T, which controls the family-wise error rate
+asymptotically; Benjamini-Hochberg remains as `adjustment="bh"` and always reads experimental. The
+`variable-importance` study that measures the family-wise error rate, power and per-candidate
+coverage is declared in `tests/studies/variable_importance.py` and has not run. Until it
+registers, the max-T claim reads experimental.
 
 ### X106. Scaling and efficiency of the shipped TMLE paths
 

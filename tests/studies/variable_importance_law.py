@@ -72,12 +72,16 @@ class Law:
         The main terms of the binary candidates.
     c : tuple of float
         Their slopes in ``W``.
-    a_z, c_z : float
-        The main term of ``Z`` and its slope in ``W``.
+    a_z : float
+        The main term of ``Z``.
+    c_z : float
+        The slope of ``Z`` in ``W``.
     d_z : tuple of float
         The level offsets of ``Z``.
-    b0, gamma : float
-        The outcome intercept and its slope in ``W``.
+    b0 : float
+        The outcome intercept.
+    gamma : float
+        The outcome's slope in ``W``.
     gated : bool
         Whether the law's cells are gated; ``collinear_pair`` is reported.
     """

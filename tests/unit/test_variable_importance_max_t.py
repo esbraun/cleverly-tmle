@@ -506,6 +506,37 @@ class TestTheRefusalsAfterTheFits:
         assert result.adjustment_support.label == "experimental"
         assert "clustered data" in result.adjustment_support.reason
 
+    def test_a_clustered_run_reads_the_cluster_sum_correlation(self) -> None:
+        """A nonzero witness for the cluster codes of the correlation (review B2).
+
+        80 clusters of 15 share a cluster-level confounder, so the rows' curves correlate
+        within a cluster. The correlation must be the cluster-sum one, whose diagonal is each
+        estimate's own variance; the row correlation differs from it by more than 0.2.
+        """
+        rng = np.random.default_rng(0)
+        clusters, size = 80, 15
+        cluster = np.repeat(np.arange(clusters), size)
+        u = rng.normal(size=clusters)[cluster]
+        w = rng.normal(size=cluster.size)
+        x1 = rng.binomial(1, 1.0 / (1.0 + np.exp(-u)))
+        x2 = rng.binomial(1, 1.0 / (1.0 + np.exp(-(0.5 * w + u))))
+        x3 = rng.binomial(1, 0.5, cluster.size)
+        y = rng.binomial(1, 1.0 / (1.0 + np.exp(-(-0.3 + 0.5 * x1 + 0.5 * w + 1.5 * u))))
+        frame = pd.DataFrame({"Y": y, "W": w, "X1": x1, "X2": x2, "X3": x3, "cl": cluster})
+        result = _run(frame, candidates=("X1", "X2", "X3"), id="cl")
+        entries = list(result)
+        curves = np.column_stack([entry.estimate.influence_curve for entry in entries])
+        clustered = influence_covariance(curves, cluster)
+        variances = np.array([entry.estimate.variance for entry in entries])
+        np.testing.assert_allclose(np.diag(clustered), variances, rtol=1e-8)
+        scale = np.sqrt(np.diag(clustered))
+        np.testing.assert_allclose(
+            result.correlation, clustered / np.outer(scale, scale), rtol=1e-10, atol=1e-12
+        )
+        rows = influence_covariance(curves)
+        row_scale = np.sqrt(np.diag(rows))
+        assert np.max(np.abs(result.correlation - rows / np.outer(row_scale, row_scale))) > 0.2
+
     def test_a_t_reference_row_is_refused(self) -> None:
         """A clustered fold-evaluated fit reads a t reference at every cluster count."""
         with pytest.raises(CapabilityError, match="Student t reference") as raised:

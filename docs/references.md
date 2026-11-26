@@ -2430,8 +2430,9 @@ sizes only the cluster sum is the delta-method variance of the row mean
   DOI 10.1111/j.2517-6161.1995.tb02031.x.
 - Benjamini & Yekutieli (2001), [*The Control of the False Discovery Rate in Multiple Testing
   under Dependency*](https://doi.org/10.1214/aos/1013699998), DOI 10.1214/aos/1013699998.
-  Theorem 1.2 needs positive regression dependence, which two-sided tests of correlated
-  estimates lack; the reason `adjustment="bh"` of `variable_importance` reads experimental.
+  Theorem 1.2 needs positive regression dependence (PRDS). Two-sided tests of correlated
+  estimates are PRDS only under special structures, such as $|Z|$ MTP2, so no theorem covers an
+  arbitrary correlation; the reason `adjustment="bh"` of `variable_importance` reads experimental.
 - van der Laan, Dudoit & Pollard (2004), [*Multiple Testing. Part II. Step-Down Procedures for
   Control of the Family-Wise Error Rate*](https://doi.org/10.2202/1544-6115.1041),
   DOI 10.2202/1544-6115.1041 (read as Berkeley working paper 139). Theorems 1, 3 and 6:

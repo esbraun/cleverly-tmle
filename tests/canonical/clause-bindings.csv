@@ -2135,3 +2135,12 @@ mtp-density-tails,interval_calibration,noise se ratio below band,se_high
 mtp-density-tails,interval_calibration,pre-fix coverage below band,pair_collapse
 mtp-density-tails,interval_calibration,se ratio below band,se_high
 mtp-density-tails,interval_calibration,se ratio in calibration band,affine
+tests.studies.variable_importance_properties,fwer_calibration,FWER inside the band,none
+tests.studies.variable_importance_properties,interval_calibration,se ratio in calibration band,none
+tests.studies.variable_importance_properties,power,one-sided rejection below the floor,none
+tests.studies.variable_importance_properties,power,rejection floor,none
+tests.studies.variable_importance_properties,family_wise_error,FWER under the ceiling,se_low
+tests.studies.variable_importance_properties,interval_calibration,noise se ratio below band,se_high
+tests.studies.variable_importance_properties,interval_calibration,se ratio below band,se_high
+tests.studies.variable_importance_properties,interval_calibration,coverage in calibration band,bias
+tests.studies.variable_importance_properties,family_wise_error,control FWER above the ceiling,pair_collapse
