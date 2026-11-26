@@ -2833,6 +2833,7 @@ default="greedy"
         """
         if is_selector_strategy(self.strategy):
             self._preflight_selection_folds(data, seed)
+        self._warn_unused_treatment_learner()
         per_arm = is_per_arm_oat(self)
         # Every collaborative strategy replaces the ordinary treatment mechanism: the
         # selectors fit their candidate path and OAT fits A on the Qbar vector.  Fit only
@@ -3523,6 +3524,36 @@ default="greedy"
             fits,
         )
         return items
+
+    def _warn_unused_treatment_learner(self) -> None:
+        """Warn when a declared ``treatment_learner`` fits no treatment mechanism.
+
+        ``strategy="lasso"`` fits every candidate as an L1-penalized logistic regression, and
+        ``strategy="derivative"`` without ``treatment_candidates=`` fits its mechanism and
+        partner the same way. A ``treatment_learner`` the user declared then fits nothing but
+        the fallback of the missingness learners, and nothing in the result would say so.
+        """
+        if self.treatment_learner is None or self.treatment_candidates is not None:
+            return
+        if self.strategy == "derivative":
+            message = (
+                "strategy='derivative' fits its treatment mechanism and partner as L1-penalized "
+                "logistic regressions (lambdas=None picks the penalty by cross-validation), so "
+                f"treatment_learner={learner_name(self.treatment_learner)} fits no treatment "
+                "mechanism; it serves only as the fallback of the missingness learners. To use "
+                "your own learners, pass treatment_candidates=(mechanism, partner)"
+            )
+        elif self.strategy == "lasso":
+            message = (
+                "strategy='lasso' fits every candidate treatment mechanism as an L1-penalized "
+                "logistic regression on the penalty grid, so "
+                f"treatment_learner={learner_name(self.treatment_learner)} fits no candidate; it "
+                "serves only as the fallback of the missingness learners. To select among your "
+                "own learners, use strategy='learners' with treatment_candidates="
+            )
+        else:
+            return
+        _warn(message, UserWarning, stacklevel=4)
 
     def _derivative_nuisances(
         self,
