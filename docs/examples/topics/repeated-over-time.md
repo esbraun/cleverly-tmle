@@ -1,4 +1,4 @@
-# Repeated actions over time
+# Treatments repeated over time
 
 These tutorials follow a treatment that is decided again and again, such as a weekly offer or a
 monthly price, where earlier treatments change later behavior and later decisions.

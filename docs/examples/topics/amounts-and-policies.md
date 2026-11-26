@@ -1,7 +1,7 @@
-# Amounts, discounts and policies
+# Compare set policies and doses
 
-These tutorials go beyond treated against untreated: policies that change who gets the treatment,
-more or less of a treatment, and a continuous dose such as a discount.
+These tutorials compare policies you specify in advance, such as offering the treatment only to
+high-risk patients, giving more or less of it, or a discount anywhere from 0% to 40%.
 
 | your situation | example | the mistake it shows |
 | --- | --- | --- |

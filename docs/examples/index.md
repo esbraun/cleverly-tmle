@@ -20,7 +20,7 @@ treatment was unlikely.
 
 Each topic page pairs its tutorials with the situation each fits and the mistake it shows.
 
-### [Start here](topics/start-here.md)
+### Start here
 
 The first page runs a whole analysis on simulated data and explains each step that the other
 tutorials reuse. The second runs one on real records, where no true answer is known.
@@ -28,35 +28,51 @@ tutorials reuse. The second runs one on real records, where no true answer is kn
 - [One treatment, one outcome: TMLE](point-treatment-tmle.ipynb)
 - [Smoking and twins' birth weight: TMLE for the effect on the treated](twins-causal-inference.ipynb)
 
-### [One-time actions](topics/one-time-actions.md)
+### One treatment, outcome measured once
 
-These tutorials estimate what a treatment, offer or practice given once did to an outcome measured
-later. They cover a randomized pilot, the gain over current practice, and several practices at once.
+Your data record one treatment decision per person, such as an offer at discharge, and one outcome
+measured once, later. Pick the heading that matches your question.
+
+#### [Overall effect of one or several treatments](topics/average-effect.md)
+
+These tutorials estimate what giving a treatment to everyone would change on average, compared with
+giving it to no one or with current practice. One of them ranks several practices at once.
 
 - [A randomized pilot: TMLE with known treatment chances](randomized-pilot.ipynb)
 - [Gain over current practice: TMLE for population impact](population-impact.ipynb)
 - [Which discharge practices matter: ranking candidate exposures with TMLE](ranking-exposures.ipynb)
 
-### [Who benefits and whom to treat](topics/who-benefits.md)
+#### [Effects by characteristic or group](topics/effects-by-group.md)
 
-These tutorials ask how the effect differs between people, and turn that into a rule for whom to
-treat.
+These tutorials break the effect down by a recorded characteristic, such as age, or by groups of
+people, such as those who live alone.
 
 - [Who gains most from a coupon: an effect that changes with age](conditional-effects.ipynb)
 - [Does navigation help patients who live alone more? Effects by group, with intervals](subgroup-effects.ipynb)
+
+#### [Learn who should get it from the data](topics/targeting-rules.md)
+
+This tutorial learns a rule that decides who gets the treatment, from recorded characteristics, and
+estimates how well the rule would do on new people.
+
 - [Who should get the offer: learned rules and random offers with TMLE](treatment-rules.ipynb)
 
-### [Amounts, discounts and policies](topics/amounts-and-policies.md)
+#### [Compare set policies and doses](topics/amounts-and-policies.md)
 
-These tutorials go beyond treated against untreated: policies that change who gets the treatment,
-more or less of a treatment, and a continuous dose such as a discount.
+These tutorials compare policies you specify in advance, such as offering the treatment only to
+high-risk patients, giving more or less of it, or a discount anywhere from 0% to 40%.
 
 - [Three offer policies: TMLE for policy effects](interventions.ipynb)
 - [More contacts and more service time: TMLE for policy effects](schedules-and-intensity.ipynb)
 - [A trend across three contact schedules: TMLE for a trend line](msm-projections.ipynb)
 - [Renewal discounts: how the chance of renewing changes with the discount](dose-response.ipynb)
 
-### [Repeated actions over time](topics/repeated-over-time.md)
+### Repeated treatments, or time until an event
+
+Your data record a treatment decided more than once per person, or the time until an event such as
+readmission or churn. Look here first, whatever your question.
+
+#### [Treatments repeated over time](topics/repeated-over-time.md)
 
 These tutorials follow a treatment that is decided again and again, such as a weekly offer or a
 monthly price, where earlier treatments change later behavior and later decisions.
@@ -67,7 +83,7 @@ monthly price, where earlier treatments change later behavior and later decision
 - [Three offers after discharge: g-formula and blip models](model-based-over-time.ipynb)
 - [Monthly prices: longitudinal TMLE for a continuous treatment](sequential-pricing.ipynb)
 
-### [Time until an event (churn, readmission)](topics/time-to-event.md)
+#### [Risk of an event by a given day (churn, readmission)](topics/time-to-event.md)
 
 These tutorials estimate the risk of an event by a given day, when some people leave follow-up and
 another event, such as death, can come first. They follow hospital readmission; the same analysis
@@ -77,7 +93,12 @@ applies to the time until a customer churns.
 - [Readmission by day 30, 60 and 90: longitudinal TMLE](discharge-to-readmission.ipynb)
 - [A medicine with two effects on readmission and death: separable effects with TMLE](separable-effects.ipynb)
 
-### [Missing, sampled or combined data](topics/missing-and-combined-data.md)
+### Data issues and model choices (any question)
+
+These headings apply to any question above: how to handle imperfect data, and how to choose and
+check the models inside a fit.
+
+#### [Missing answers, samples, or a trial plus outside records](topics/missing-and-combined-data.md)
 
 These tutorials handle data that a textbook analysis assumes away. Outcomes go missing, a sample is
 drawn with unequal chances, or a small randomized trial is combined with outside records that differ
@@ -87,7 +108,7 @@ from it.
 - [An interview of a sample of patients: TMLE with sampling weights](sampling-weights.ipynb)
 - [A small pilot with outside records: adaptive TMLE](trial-with-external-data.ipynb)
 
-### [Choosing models and checking results](topics/models-and-checks.md)
+#### [Choosing models and checking results](topics/models-and-checks.md)
 
 These tutorials choose the prediction models inside a fit, such as gradient boosting. They keep the
 interval honest when the models are flexible, when patients share a team, or when one variable
@@ -270,15 +291,35 @@ figures of fits that the pages below explain.
 | [a strong predictor of treatment](collaborative-tmle.ipynb) | collaborative TMLE, here predicting the treatment from the outcome model's predictions instead of from every characteristic | [collaborative TMLE](../technical-reference/collaborative-tmle.md) |
 
 ```{toctree}
-:hidden:
+:caption: Start here
+:maxdepth: 1
+
+One treatment, one outcome <point-treatment-tmle>
+Smoking and twins' birth weight <twins-causal-inference>
+```
+
+```{toctree}
+:caption: One treatment, outcome measured once
 :maxdepth: 2
 
-topics/start-here
-topics/one-time-actions
-topics/who-benefits
+topics/average-effect
+topics/effects-by-group
+topics/targeting-rules
 topics/amounts-and-policies
+```
+
+```{toctree}
+:caption: Repeated treatments, or time until an event
+:maxdepth: 2
+
 topics/repeated-over-time
 topics/time-to-event
+```
+
+```{toctree}
+:caption: Data issues and model choices (any question)
+:maxdepth: 2
+
 topics/missing-and-combined-data
 topics/models-and-checks
 ```
