@@ -109,6 +109,12 @@ from .treatment_rules import (
     treatment_rule_effect,
     treatment_rule_value,
 )
+from .two_decisions import (
+    TWO_DECISION_COLUMNS,
+    learned_regimen_truth,
+    make_two_decision_rules,
+    two_decision_rules_protocol,
+)
 from .weekly_orders import (
     ORDER_PLANS,
     ORDER_TILTS,
@@ -138,6 +144,7 @@ __all__ = [
     "REPEATED_RULE_LABEL",
     "RULE_LABEL",
     "SCHEDULE_LEVELS",
+    "TWO_DECISION_COLUMNS",
     "WEIGHTED_SELECTION_PROBABILITIES",
     "MultiArmDGP",
     "ShiftDGP",
@@ -153,6 +160,7 @@ __all__ = [
     "heart_failure_truth",
     "heterogeneous_dgp",
     "instrument_dgp",
+    "learned_regimen_truth",
     "learned_rule_truth",
     "linear_dgp",
     "longitudinal_navigation_protocol",
@@ -188,6 +196,7 @@ __all__ = [
     "make_shift_dose",
     "make_team_readmission",
     "make_treatment_rules",
+    "make_two_decision_rules",
     "make_weak_overlap",
     "make_weekly_orders",
     "missing_outcome_binary_dgp",
@@ -221,6 +230,7 @@ __all__ = [
     "team_readmission_truth",
     "treatment_rule_effect",
     "treatment_rule_value",
+    "two_decision_rules_protocol",
     "weak_overlap_dgp",
     "weekly_orders_protocol",
     "weekly_orders_truth",
