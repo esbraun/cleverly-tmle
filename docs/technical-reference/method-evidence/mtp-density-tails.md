@@ -234,9 +234,28 @@ estimators:
   carry a positive bias on both estimators (0.0010 and 0.0015), and coverage stays inside its
   band.
 
-Each departure is a difference of a few percent between two estimators' empirical spread under
-a common standard error, and none is a coverage failure. Under the declared rule a reported row
-outside the band is diagnosed and reported, not a red row, and none is rerun.
+The two `up` rows are a difference of a few percent between two estimators' empirical spread
+under a common standard error. The `SDR` scale row's coverage interval excludes 0.95, and the
+`LTMLE` scale contrast reads a smaller shortfall in the same direction (SE ratio 0.972, coverage
+0.942). Under the declared rule a reported row outside the band is diagnosed and reported, not a
+red row, and none is rerun.
+
+**The scale-policy interval.** Diagnostic runs outside the registered study (400 draws per
+configuration) trace the shortfall to the default classifier stack's ratio, not to the
+influence-curve formula. Splitting each registered estimate's error into the exact first-order
+term and a remainder, on `scale at 2` the remainder carries 13% of the estimates' variance, runs
+against the first-order term, and carries the bias. With the correctly specified classifier and
+the registered outcome learners at n = 2,000, the remainder falls to 2% of the variance and the
+fitted curve's variance slightly exceeds the efficient influence function's (ratio 1.03, SE
+0.009; SE ratio 1.05).
+
+With correct outcome regressions and the default stack, the fitted
+curve's variance stayed near 0.8 of the efficient influence function's at n = 2,000 and 8,000
+(0.80 and 0.81). The SE ratio fell from 0.960 to 0.894, with coverage 0.928 at 8,000, as the
+remainder that offset the low curve at 2,000 shrank. At 8,000 the estimates' spread is compatible
+with the efficiency bound (1.01, SE 0.07), and a remainder of 7% of the variance remains. In the
+dose band just below the scale policy's cap, where its ratio rises steeply, the stack's fitted
+ratio is shrunk toward one. Estimates on this route keep the `experimental` label.
 
 ## Measured values and declared margins
 
