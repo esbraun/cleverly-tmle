@@ -20,6 +20,7 @@ from ..inference.influence import ParameterEstimate, Scale, make_estimate
 from ..inference.results import ratio_contrast, smooth_contrast
 from ..inference.sparse import influence_row
 from ..inference.switched import PredictableCovariance
+from ..provenance import Provenance
 from ..utils.frames import emit_frame
 
 #: The registered study that measures :class:`~cleverly.survival.ContinuousSurvivalTMLE`.
@@ -1520,6 +1521,10 @@ class ContinuousSurvivalResult(_TargetedRisks, Mapping[str, ParameterEstimate]):
         some combined hazard jump of one or more below one.  A refit warns of nothing; this
         count, and the reason of every bootstrap interval when it is nonzero, say how often
         the bound acted.
+    provenance : Provenance or None
+        The rows, the digests of the data and of the outer folds, the seed and the package
+        versions of the fit; a study fit adds its protocol's fingerprint.  ``None`` only on a
+        result built by hand.
 
     Notes
     -----
@@ -1552,6 +1557,7 @@ class ContinuousSurvivalResult(_TargetedRisks, Mapping[str, ParameterEstimate]):
     bootstrap_status: Literal["ran", "bootstrap_unstable"] | None = None
     bootstrap_failures: tuple[str, ...] = ()
     bootstrap_jump_bounded: int = 0
+    provenance: Provenance | None = field(default=None, repr=False)
     #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
     #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
     #: another fit.

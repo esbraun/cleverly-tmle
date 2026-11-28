@@ -3,7 +3,9 @@
 When you know the exact time of each event and of each censoring, `grid="continuous"` skips the
 check-time grid: no event is moved to a later check time. It handles a two-level treatment given
 once at the start, and one event type or several competing ones, and reports each risk at the
-times in `horizons=`.
+times in `horizons=`. The tutorial [readmission or death with exact event
+times](../examples/exact-event-times.ipynb) runs this analysis from start to finish on simulated
+patients whose true risks are known.
 
 ```python
 import numpy as np

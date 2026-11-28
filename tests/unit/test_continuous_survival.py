@@ -754,6 +754,34 @@ def test_the_study_route_reports_every_risk_and_contrast() -> None:
     assert 0.0 <= result["cif_regimen[control, relapse @ t=1]"].psi <= 1.0
 
 
+def test_a_study_fit_stamps_its_protocol_and_the_engine_its_data_and_folds() -> None:
+    from tests.unit.summary_fixtures.setup import protocol
+
+    frame = _sample(n=300)
+    contrast = RegimeContrast({"treated": 1, "control": 0}, reference="control", horizons=[1.0])
+    results = []
+    for declared in (protocol(), protocol(horizon="60 days after discharge"), None):
+        study = CausalStudy(frame, design=_design_continuous(), protocol=declared)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            results.append(study.identify(contrast).estimate(random_state=0, cross_fit=False))
+    first, second, plain = (result.provenance for result in results)
+    assert first.protocol_fingerprint == protocol().fingerprint
+    assert second.protocol_fingerprint not in (None, first.protocol_fingerprint)
+    assert plain.protocol_fingerprint is None
+    assert first.data_fingerprint == plain.data_fingerprint
+    assert first.fold_fingerprint == plain.fold_fingerprint
+    assert (first.n, first.n_covariates, first.random_state) == (300, 1, 0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        moved = (
+            CausalStudy(frame.assign(X3=frame["X3"] + 1.0), design=_design_continuous())
+            .identify(contrast)
+            .estimate(random_state=0, cross_fit=False)
+        )
+    assert moved.provenance.data_fingerprint != plain.data_fingerprint
+
+
 def test_a_polars_frame_comes_back_as_polars_and_the_result_saves(tmp_path: Any) -> None:
     pl = pytest.importorskip("polars")
     import cleverly

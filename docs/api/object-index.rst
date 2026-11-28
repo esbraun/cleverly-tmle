@@ -364,6 +364,9 @@ categorized API tables.
    cleverly.datasets.make_heart_failure
    cleverly.datasets.heart_failure_truth
    cleverly.datasets.heart_failure_protocol
+   cleverly.datasets.make_exact_readmission
+   cleverly.datasets.exact_readmission_truth
+   cleverly.datasets.exact_readmission_protocol
    cleverly.plotting.forest
    cleverly.plotting.curve
    cleverly.plotting.sensitivity

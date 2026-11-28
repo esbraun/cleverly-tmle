@@ -35,6 +35,7 @@ that fits its question.
 | [adaptive TMLE](technical-reference/adaptive-tmle.md) | trial-with-external-data |
 | [smoothed dose-response curve](technical-reference/dose-response.md) | dose-response |
 | [conditional effects](technical-reference/conditional-effects.md) | conditional-effects, subgroup-effects |
+| [continuous-time survival](technical-reference/continuous-time-survival.md) | exact-event-times, plots |
 
 The tutorials share two narratives. Most follow one health program: a health plan's hospital
 network evaluates care-transition navigation. A new tutorial for a method joins that program rather

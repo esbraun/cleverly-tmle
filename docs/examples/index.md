@@ -96,6 +96,7 @@ applies to the time until a customer churns.
 - [Readmission when death can come first: longitudinal TMLE](longitudinal-survival.ipynb)
 - [Readmission by day 30, 60 and 90: longitudinal TMLE](discharge-to-readmission.ipynb)
 - [A medicine with two effects on readmission and death: separable effects with TMLE](separable-effects.ipynb)
+- [Readmission or death after discharge, with exact event times: continuous-time survival TMLE](exact-event-times.ipynb)
 
 ### Data issues and model choices (any question)
 
@@ -287,6 +288,7 @@ figures of fits that the pages below explain.
 | [readmission when death can come first](longitudinal-survival.ipynb) | TMLE for treatments over time, when death can come first | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 | [readmission by day 30, 60 and 90](discharge-to-readmission.ipynb) | TMLE for the risk by each follow-up day after one treatment, and cross-fitted TMLE over two decisions with intervals that treat each team as one unit | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 | [a medicine with two effects](separable-effects.ipynb) | TMLE for separable effects: the risk of each of two competing events when the part of a treatment that acts on one event and the part that acts on the other are set to different doses | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
+| [readmission or death with exact times](exact-event-times.ipynb) | TMLE for the risk of each of two competing events by chosen times, from exact event times with no check-day grid, with the difference and ratio of the risks and the mean time free of both events | [continuous-time survival](../technical-reference/continuous-time-survival.md) |
 | [missing survey answers](survey-nonresponse.ipynb) | TMLE with a model of who responds | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 | [an interview of a sample of patients](sampling-weights.ipynb) | TMLE with sampling weights, with effects for two risk groups and missing treatment records | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 | [a small pilot with outside records](trial-with-external-data.ipynb) | adaptive TMLE, which learns how the outside records differ from the pilot and removes that difference | [adaptive TMLE](../technical-reference/adaptive-tmle.md) |

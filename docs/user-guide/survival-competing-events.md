@@ -10,6 +10,8 @@ event first by each time, with the other events left as they are. Cause, horizon
 in the result keys, such as `cif_regimen[arm1, relapse @ t=4]`. A treatment that raises
 deaths can lower readmissions in this sense, because fewer people stay alive to be readmitted.
 [Readmission when death can come first](../examples/longitudinal-survival.ipynb) works through it,
+and [readmission or death with exact event times](../examples/exact-event-times.ipynb) does the
+same when each event's exact time is recorded,
 and [Survival and competing risks](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks)
 gives the recursion, which keeps people with an earlier competing event out of later risk sets.
 

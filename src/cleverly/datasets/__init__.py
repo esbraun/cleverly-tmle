@@ -8,6 +8,13 @@ from .discharge_practices import (
     discharge_practices_truth,
     make_discharge_practices,
 )
+from .exact_times import (
+    EXACT_ARMS,
+    EXACT_CAUSES,
+    exact_readmission_protocol,
+    exact_readmission_truth,
+    make_exact_readmission,
+)
 from .heart_failure import heart_failure_protocol, heart_failure_truth, make_heart_failure
 from .home_support import (
     HOME_SUPPORT_LEVELS,
@@ -140,6 +147,8 @@ from .weekly_orders import (
 __all__ = [
     "DGP",
     "DOSE_PLANS",
+    "EXACT_ARMS",
+    "EXACT_CAUSES",
     "GENERATORS",
     "HOME_SUPPORT_LEVELS",
     "OFFER_LEVELS",
@@ -172,6 +181,8 @@ __all__ = [
     "contact_schedules_truth",
     "discharge_practices_protocol",
     "discharge_practices_truth",
+    "exact_readmission_protocol",
+    "exact_readmission_truth",
     "heart_failure_protocol",
     "heart_failure_truth",
     "heterogeneous_dgp",
@@ -190,6 +201,7 @@ __all__ = [
     "make_clustered",
     "make_contact_schedules",
     "make_discharge_practices",
+    "make_exact_readmission",
     "make_heart_failure",
     "make_heterogeneous",
     "make_home_support",

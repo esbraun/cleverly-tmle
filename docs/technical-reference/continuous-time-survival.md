@@ -9,7 +9,9 @@ The restricted horizons are targets, so the study declares them on the estimand,
 `RegimeMean(..., restricted_horizons=(tau,))` or `RegimeContrast(..., restricted_horizons=(tau,))`,
 which passes them to the estimator's `restricted_horizons=`; the method objects refuse the
 keyword. The discrete-time engines are in
-[longitudinal TMLE](longitudinal-tmle.md#survival-and-competing-risks).
+[longitudinal TMLE](longitudinal-tmle.md#survival-and-competing-risks). The tutorial
+[readmission or death with exact event times](../examples/exact-event-times.ipynb) fits the study
+route with two causes and one restricted horizon.
 
 ## Estimand and identification
 

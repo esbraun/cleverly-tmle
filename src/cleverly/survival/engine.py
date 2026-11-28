@@ -42,6 +42,8 @@ from ..exceptions import (
 )
 from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from ..learners._fitting import seed_unset
+from ..provenance import build as provenance_build
+from ..provenance import fingerprint_array, fold_fingerprint
 from ..utils.memory import available_memory, check_max_memory_bytes
 from ..utils.parallel import available_cpus, map_parallel
 from ..utils.random import note_fresh_entropy
@@ -958,6 +960,16 @@ class ContinuousSurvivalTMLE:
         stored._fold_override = None if folds is None else initial.folds.copy()
         stored._fold_plan = initial.plan
         stored._plan_override = plan
+        provenance = provenance_build(
+            n=initial.n,
+            n_covariates=int(np.asarray(data.baseline).reshape(initial.n, -1).shape[1]),
+            n_clusters=None,
+            data_fingerprint=fingerprint_array(
+                data.time, data.event, data.treatment, data.baseline
+            ),
+            fold_fingerprint=fold_fingerprint([initial.folds]),
+            random_state=seed,
+        )
         result = ContinuousSurvivalResult(
             estimates=estimates,
             simultaneous=bands,
@@ -979,6 +991,7 @@ class ContinuousSurvivalTMLE:
                 treatment=np.array(data.treatment, copy=True),
                 baseline=np.array(data.baseline, copy=True),
             ),
+            provenance=provenance,
         )
         if not self.n_bootstrap:
             return result

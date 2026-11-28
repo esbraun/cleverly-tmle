@@ -1,0 +1,9 @@
+draws: 100, seeds 100..199
+two ate_regimen[offered vs not offered, readmission @ t=3]: truth -0.2125, bias 0.0007 (MC SE 0.0033), emp SD 0.0327, mean SE 0.0338, SE/SD 1.04, coverage 0.980 (MC SE 0.014)
+two ate_regimen[offered vs not offered, death @ t=3]: truth -0.0586, bias 0.0000 (MC SE 0.0031), emp SD 0.0306, mean SE 0.0330, SE/SD 1.08, coverage 0.960 (MC SE 0.020)
+two rr_regimen[offered vs not offered, readmission @ t=3]: truth 0.5001, bias 0.0024 (MC SE 0.0056), emp SD 0.0560, mean SE 0.1163, SE/SD 2.08, coverage 0.980 (MC SE 0.014)
+two rmst_regimen[offered vs not offered @ t=3]: truth 0.5560, bias 0.0084 (MC SE 0.0082), emp SD 0.0823, mean SE 0.0793, SE/SD 0.96, coverage 0.940 (MC SE 0.024)
+two rmst_regimen[offered @ t=3]: truth 2.3021, bias 0.0033 (MC SE 0.0056), emp SD 0.0564, mean SE 0.0542, SE/SD 0.96, coverage 0.930 (MC SE 0.026)
+one risk_regimen[offered @ t=3]: truth 0.2357, bias -0.0009 (MC SE 0.0024), emp SD 0.0238, mean SE 0.0245, SE/SD 1.03, coverage 0.960 (MC SE 0.020)
+one risk_regimen[not offered @ t=3]: truth 0.4991, bias -0.0002 (MC SE 0.0032), emp SD 0.0322, mean SE 0.0306, SE/SD 0.95, coverage 0.950 (MC SE 0.022)
+simple readmission difference by month 3: mean -0.0879, SD 0.0264, truth -0.2125
