@@ -617,12 +617,14 @@ def generate_property_artifacts(
 
 
 def split_records(records: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """The replicates record, one frame per configuration's file (empty frames for none)."""
+    """The replicates record, one frame per configuration and law (empty frames for none)."""
     if "configuration" not in records.columns:
         return {name: records.copy() for name in study.REPLICATES_FILES.values()}
     return {
-        name: records.loc[records["configuration"] == configuration].reset_index(drop=True)
-        for configuration, name in study.REPLICATES_FILES.items()
+        name: records.loc[
+            (records["configuration"] == configuration) & (records["law"] == law)
+        ].reset_index(drop=True)
+        for (configuration, law), name in study.REPLICATES_FILES.items()
     }
 
 
@@ -943,7 +945,6 @@ def projected_megabytes(rows: pd.DataFrame, records: pd.DataFrame) -> dict[str, 
     replicates = study.DECLARED_REPLICATES or study.PROVISIONAL_REPLICATES
     keys = replicates * len(study.GATED_LAWS) + study.REPORTED_REPLICATES
     configurations = len(study.CONFIGURATIONS)
-    fits = (keys + study.WITNESS_REPLICATES) * configurations
     count = max(len(records), 1)
     text = io.StringIO()
     formatted(records).to_csv(text, index=False)
@@ -952,9 +953,12 @@ def projected_megabytes(rows: pd.DataFrame, records: pd.DataFrame) -> dict[str, 
         write_rows(_ordered(with_controls(rows)), path)
         rows_bytes = path.stat().st_size
     per_fit = len(text.getvalue().encode()) / count
-    sizes = dict.fromkeys(
-        study.REPLICATES_FILES.values(), per_fit * fits / configurations / 1000000.0
-    )
+    sizes = {
+        name: per_fit
+        * (planned(law) + (study.WITNESS_REPLICATES if law == study.WITNESS_LAW else 0))
+        / 1e6
+        for (_, law), name in study.REPLICATES_FILES.items()
+    }
     sizes["property-replicates.parquet"] = rows_bytes / count * keys * configurations / 1e6
     return sizes
 

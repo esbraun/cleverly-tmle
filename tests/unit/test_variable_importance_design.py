@@ -330,16 +330,27 @@ def test_the_record_entropy_is_used_nowhere_else() -> None:
 # ------------------------------------------------------------------------ declared, not run
 
 
-def test_the_declared_run_waits_for_the_pilot_and_the_declaration() -> None:
-    assert study.DECLARED_REPLICATES is None
-    assert study.read_pilot() is not None
+def test_the_declaration_is_the_sizing_rule_on_the_committed_pilots() -> None:
+    pilot, extension = study.read_pilot(), study.read_extension()
+    assert pilot is not None and extension is not None
+    replicates, probability = study.declared_replicates(pilot, extension)
+    assert study.DECLARED_REPLICATES == replicates == 12_000
+    assert probability >= study.SIZING_TARGET
+    assert set(extension.loc[extension["kind"] == "coverage_by_configuration", "replicates"]) == {
+        float(study.PILOT_EXTENSION_REPLICATES)
+    }
     assert study.SLUG not in {record.slug for record in registered()}
-    with pytest.raises(RuntimeError, match="declaration commit"):
-        properties.requested("independent_null")
-    with pytest.raises(RuntimeError, match="declaration commit"):
-        properties.generate_property_artifacts(n_jobs=1)
+    assert properties.requested("independent_null") == 12_000
     assert properties.requested("collinear_pair") == study.REPORTED_REPLICATES
     assert (study.STUDY.artifacts / "regenerate.py").is_file()
+
+
+def test_the_declared_files_fit_under_the_ceiling() -> None:
+    # Each replicates file at the declared R, from the measured size of one formatted record.
+    per_fit = 2_200 / 1e6
+    for (_, law), _name in study.REPLICATES_FILES.items():
+        extra = study.WITNESS_REPLICATES if law == study.WITNESS_LAW else 0
+        assert per_fit * (properties.planned(law) + extra) < study.ARTIFACT_CEILING_MB
 
 
 def test_the_record_lists_its_modules_and_cells() -> None:
@@ -552,8 +563,9 @@ def test_the_replicates_record_splits_by_configuration_under_the_size_ceiling(on
     split = properties.split_records(frame)
     assert set(split) == set(study.REPLICATES_FILES.values())
     assert sum(len(part) for part in split.values()) == len(frame)
-    for configuration, name in study.REPLICATES_FILES.items():
+    for (configuration, law), name in study.REPLICATES_FILES.items():
         assert set(split[name]["configuration"]) <= {configuration}
+        assert set(split[name]["law"]) <= {law}
 
 
 def test_every_cell_scenario_and_estimand_is_described() -> None:

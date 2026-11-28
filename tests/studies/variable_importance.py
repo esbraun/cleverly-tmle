@@ -125,14 +125,17 @@ PILOT_PATH = ROOT / "tests" / "studies" / "variable_importance_pilot.csv"
 PROVISIONAL_REPLICATES = 3_200
 #: The declared property count of a gated law. ``None`` until the declaration commit: the
 #: declared run refuses to start without it.
-DECLARED_REPLICATES: int | None = None
+#: Declared 2026-11-28 (design rev 3.1) from the committed pilot and its 8,000-draw
+#: extension: :func:`declared_replicates` gives 12,000 (family pass 0.954).
+DECLARED_REPLICATES: int | None = 12_000
 #: The property count of the reported law and of the adjustment witness.
 REPORTED_REPLICATES = 1_000
 WITNESS_REPLICATES = 1_000
 #: Above this no R sizes the family; the row thread stops and reports (design section 6).
 #: Rev 3 raised it from 4,800: the arm-pooled predictive rule plans the calibration cells at
-#: their measured SE ratio, which needs more R than a cell planned at a ratio of 1.
-MAXIMUM_REPLICATES = 8_000
+#: their measured SE ratio, which needs more R than a cell planned at a ratio of 1. Rev 3.1
+#: raised it from 8,000 to 20,000, the range Eric accepted with the second extension.
+MAXIMUM_REPLICATES = 20_000
 #: The pilot extension (design rev 3, section 9a): this many fresh draws of the calibration
 #: law, replicates :data:`PILOT_REPLICATES` onward on their own stream, so each calibration
 #: arm is read on at least 3,000 draws (``guide/studies.md``, "Coverage readings") before the
@@ -155,7 +158,7 @@ SMOKE_SCENARIOS = (
 SMOKE_REPLICATES = 12
 #: The CPU ceilings of the two runner briefs, in vCPU-hours.
 PILOT_CPU_CEILING_HOURS = 8.0
-RUN_CPU_CEILING_HOURS = 50.0
+RUN_CPU_CEILING_HOURS = 75.0
 #: Above this projected size of any one committed property file, in MB, the runner stops and
 #: reports (``COMPACT_BYTES`` of the evidence writer; GitHub refuses a file over 100 MB).
 ARTIFACT_CEILING_MB = 90.0
@@ -163,11 +166,15 @@ ARTIFACT_CEILING_MB = 90.0
 #: The per-replicate artifact: one row per replicate, configuration and adjustment set, with
 #: each parameter's estimate, standard error, residual margin, raw, max-T and BH p-values, and
 #: the replicate's correlation once (its 66 upper-triangle entries; review R2-6).
-#: The per-replicate record of the property fits, one file per configuration so that each
-#: stays under GitHub's 100 MB limit at the declared R.
-REPLICATES_FILES: dict[str, str] = {
-    configuration: f"variable-importance-replicates-{configuration.replace('_', '-')}.csv"
+#: The per-replicate record of the property fits, one file per configuration and law so that
+#: each stays under GitHub's 100 MB limit at the declared R.
+REPLICATES_FILES: dict[tuple[str, str], str] = {
+    (configuration, law): (
+        f"variable-importance-replicates-{configuration.replace('_', '-')}-"
+        f"{law.replace('_', '-')}.csv"
+    )
     for configuration in CONFIGURATIONS
+    for law in LAW_NAMES
 }
 
 #: The registration commit adds this entry to ``cleverly._support_rows.EXEMPT_STUDIES``.
