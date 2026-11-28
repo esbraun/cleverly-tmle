@@ -70,6 +70,8 @@ SEED = 2026112601
 RESAMPLING_SEED = 2026112602
 #: The one sample size of the record (design section 6).
 N = 4_000
+#: The primary phase's sample size, which the regeneration driver reads (one n for the record).
+PRIMARY_N = N
 #: Rev 3: 1,600, not 1,000, so the 120 gated primary coverage floors fit the family pass
 #: (review B1): at 1,000 they alone carried a 3% to 12% chance of a false red.
 PRIMARY_REPLICATES = 1_600
@@ -158,7 +160,7 @@ SMOKE_SCENARIOS = (
 SMOKE_REPLICATES = 12
 #: The CPU ceilings of the two runner briefs, in vCPU-hours.
 PILOT_CPU_CEILING_HOURS = 8.0
-RUN_CPU_CEILING_HOURS = 75.0
+RUN_CPU_CEILING_HOURS = 90.0
 #: Above this projected size of any one committed property file, in MB, the runner stops and
 #: reports (``COMPACT_BYTES`` of the evidence writer; GitHub refuses a file over 100 MB).
 ARTIFACT_CEILING_MB = 90.0
@@ -1065,6 +1067,9 @@ CONFIGURATION = {
         "(max_t, 10,000 draws, multiplier_seed=0)"
     ),
     "laws": "tests/studies/variable_importance_law.py, six laws, exact truths and covariance",
-    "pilot": f"{PILOT_REPLICATES} replicates per law on stream {PILOT_STREAM!r}",
-    "margins": f"FWER band and ceiling at alpha (1 +/- {DELTA}); power floor 0.80",
+    "pilot": (
+        f"{PILOT_REPLICATES} replicates per law on stream {PILOT_STREAM!r}; the calibration "
+        f"law extended by {PILOT_EXTENSION_REPLICATES} on {PILOT_EXTENSION_STREAM!r}"
+    ),
+    "property_margins": f"FWER band and ceiling at alpha (1 +/- {DELTA}); power floor 0.80",
 }
