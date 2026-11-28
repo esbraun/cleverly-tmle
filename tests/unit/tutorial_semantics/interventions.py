@@ -44,6 +44,7 @@ TRUNCATION = 0.0114
 _PROBE = "reviews/notebook-review/probes/interventions-final"
 _BINARY = f"{_PROBE}/summary.log, sweep_binary.csv (seeds 9000 to 9119)"
 _DOSE = f"{_PROBE}/summary.log, sweep_dose.csv (seeds 9000 to 9119)"
+_LEARNED = "tests/canonical/point_shift_learned_density/summary.csv (ate_policy rows)"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
@@ -59,6 +60,14 @@ UNPRINTED_DECIMALS = {
         "cross-fitted +1.0 mean SE over empirical SD, exact density at 320 bins: "
         "reviews/notebook-review/probes/iv-n3/summary_ic.log, point-treatment-tmle.md"
     ),
+    # Coverage of the three effects in the learned-density study (1,200 draws per row).
+    "93.3": f"in_sample_learned coverage, +0.5 capped at 5 (0.9325): {_LEARNED}",
+    "92.7": f"in_sample_learned coverage, +0.5 uncapped (0.9267): {_LEARNED}",
+    "89.7": f"in_sample_learned coverage, +1.0 uncapped (0.8967): {_LEARNED}",
+    "94.4": f"smallest in_sample_oracle effect coverage, +1.0 uncapped (0.9442): {_LEARNED}",
+    "95.6": f"largest in_sample_oracle effect coverage, +0.5 capped at 5 (0.9558): {_LEARNED}",
+    "95.4": f"smallest crossfit_learned effect coverage, +0.5 uncapped (0.9542): {_LEARNED}",
+    "96.3": f"largest crossfit_learned effect coverage, +0.5 capped at 5 (0.9625): {_LEARNED}",
     "+0.00011": f"incremental mean error, degree-2 logistic g: {_BINARY}",
     "+0.00066": f"incremental mean error, shallow booster: {_BINARY}",
     "0.00008": f"Monte Carlo SE of each incremental mean error: {_BINARY}",
