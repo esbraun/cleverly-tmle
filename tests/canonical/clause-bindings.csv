@@ -2139,3 +2139,17 @@ mtp-density-tails,interval_calibration,noise se ratio below band,se_high
 mtp-density-tails,interval_calibration,pre-fix coverage below band,pair_collapse
 mtp-density-tails,interval_calibration,se ratio below band,se_high
 mtp-density-tails,interval_calibration,se ratio in calibration band,affine
+tests.studies.few_cluster_floor_stacked_properties,few_cluster_candidate,candidate coverage gain over the reference,coverage/0.5
+tests.studies.few_cluster_floor_stacked_properties,few_cluster_candidate_pooled,pooled candidate coverage gain over the reference,coverage/0.5
+tests.studies.few_cluster_floor_stacked_properties,few_cluster_reference,bias equivalent,none
+tests.studies.few_cluster_floor_stacked_properties,few_cluster_reference,coverage floor,se_low
+tests.studies.few_cluster_floor_stacked_properties,few_cluster_reference,paired iid/cluster se ratio under its ceiling,none
+tests.studies.few_cluster_floor_stacked_properties,few_cluster_reference,paired positive se ratio at most the sanity ceiling,mixed/9
+tests.studies.few_cluster_arm_means_properties,few_cluster_reference,bias equivalent,none
+tests.studies.few_cluster_arm_means_properties,few_cluster_reference,coverage floor,se_low
+tests.studies.few_cluster_arm_means_properties,few_cluster_reference,paired iid/cluster se ratio under its ceiling,none
+tests.studies.few_cluster_arm_means_properties,few_cluster_reference,paired positive se ratio at most the sanity ceiling,mixed/4
+tests.studies.few_cluster_arm_means_ltmle_properties,few_cluster_reference,bias equivalent,bias
+tests.studies.few_cluster_arm_means_ltmle_properties,few_cluster_reference,coverage floor,none
+tests.studies.few_cluster_arm_means_ltmle_properties,few_cluster_reference,paired iid/cluster se ratio under its ceiling,none
+tests.studies.few_cluster_arm_means_ltmle_properties,few_cluster_reference,paired positive se ratio at most the sanity ceiling,mixed/5

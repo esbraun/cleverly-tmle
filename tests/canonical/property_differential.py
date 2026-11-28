@@ -100,10 +100,14 @@ DIFFERENTIAL_BOOTSTRAP = 200
 #: long-horizon studies, ``boundary-node-ltmle``, ``few-cluster-fold-variance``, the two
 #: few-cluster floor studies and ``few-cluster-adaptive-learners`` bind to their committed rows,
 #: so they are subjects by slug; the floor studies read their declared subset of those rows
-#: (:func:`declared_subset`).
+#: (:func:`declared_subset`). The three X54 (j) and (k) floor studies run on synthetic rows of
+#: their declared subset until their declared runs commit their rows.
 SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
     "tests.studies.mtp_density_tails_properties",
+    "tests.studies.few_cluster_floor_stacked_properties",
+    "tests.studies.few_cluster_arm_means_properties",
+    "tests.studies.few_cluster_arm_means_ltmle_properties",
 )
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.

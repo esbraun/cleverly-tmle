@@ -71,9 +71,19 @@ PILOT_DRAWS: Final[int] = 400
 MODULES: Final[dict[str, str]] = {
     "tmle": "tests.studies.few_cluster_floor_tmle_properties",
     "ltmle": "tests.studies.few_cluster_floor_ltmle_properties",
+    "stacked": "tests.studies.few_cluster_floor_stacked_properties",
+    "arm_means": "tests.studies.few_cluster_arm_means_properties",
+    "arm_means_ltmle": "tests.studies.few_cluster_arm_means_ltmle_properties",
 }
-#: The declared property-phase budgets (plan 5.9 and the declarations), in CPU hours.
-DECLARED_CPU_HOURS: Final[dict[str, float]] = {"tmle": 60.0, "ltmle": 22.0}
+#: The declared property-phase budgets (plan 5.9 and the declarations; X54 plan rev 2.4, 5.1 to
+#: 5.3 for the three later studies), in CPU hours.
+DECLARED_CPU_HOURS: Final[dict[str, float]] = {
+    "tmle": 60.0,
+    "ltmle": 22.0,
+    "stacked": 25.0,
+    "arm_means": 80.0,
+    "arm_means_ltmle": 10.0,
+}
 #: A measured total above this multiple of the declared budget goes back to the row thread.
 BUDGET_TOLERANCE: Final[float] = 1.25
 #: The power under both control clauses a control cell needs at the chosen R not to be a
@@ -228,7 +238,14 @@ def predicted_reds(
 
 
 def sizing_table(which: str, module: ModuleType, summary: pd.DataFrame) -> pd.DataFrame:
-    """Per floor family the M5 sizing, then each predicted red and its reading."""
+    """Per floor family the M5 sizing, then each predicted red and its reading.
+
+    A module that declares ``pilot_sizing_table(summary)`` (the X54 (j) and (k) studies) writes
+    its own table, with the same ``family``, ``kind``, ``cell``, ``reading`` and ``replicates``
+    columns.
+    """
+    if hasattr(module, "pilot_sizing_table"):
+        return pd.DataFrame(module.pilot_sizing_table(summary))
     sized = module.sizing(summary)
     sized = sized if isinstance(sized, dict) else {module.study.FIT: sized}
     out = []
@@ -278,9 +295,16 @@ def sizing_table(which: str, module: ModuleType, summary: pd.DataFrame) -> pd.Da
     return pd.DataFrame(out)
 
 
+def _family_of(which: str, module: ModuleType, fit: str) -> str:
+    """The floor family of a fit: the module's ``family_of`` where it declares one."""
+    if hasattr(module, "family_of"):
+        return str(module.family_of(fit))
+    study = module.study
+    return str(study.FITS[fit]) if which == "tmle" else str(study.FIT)
+
+
 def candidate_table(which: str, module: ModuleType, rows: pd.DataFrame) -> pd.DataFrame:
     """Per part (c) family, (C)'s pilot discordance with (A) and its clause (i) probability."""
-    study = module.study
     pairs = rows.loc[rows["property"] == floor.CANDIDATE_FAMILY]
     groups = dict(tuple(pairs.groupby("cell", sort=False)))
     by_family: dict[str, list[floor.PairedCounts]] = {}
@@ -291,7 +315,7 @@ def candidate_table(which: str, module: ModuleType, rows: pd.DataFrame) -> pd.Da
         control = groups.get("__".join((fit, law, count, floor.reference_for(arm))))
         if control is None:
             continue
-        family = study.FITS[fit] if which == "tmle" else study.FIT
+        family = _family_of(which, module, fit)
         draws = int(frame["requested_replicates"].iloc[0])
         by_family.setdefault(family, []).append(floor.paired_counts(frame, control, draws=draws))
     out = []
@@ -309,7 +333,8 @@ def candidate_table(which: str, module: ModuleType, rows: pd.DataFrame) -> pd.Da
                 "shortfall": probability < JACKKNIFE_TARGET,
             }
         )
-    return pd.DataFrame(out)
+    columns = ["family", "cells", "discordance", "admissibility_probability", "shortfall"]
+    return pd.DataFrame(out, columns=columns)
 
 
 def timing_table(
@@ -321,17 +346,22 @@ def timing_table(
     total rows: the projection at that R, which the 1.25 rule reads against the declared
     budget, and the projection with every family at :data:`~tests.studies.few_cluster_floor.R_CAP`.
     """
-    study = module.study
-    main = rows.loc[
-        (rows["property"] == floor.FAMILY)
-        & rows["cell"].astype(str).str.endswith(f"__{floor.REFERENCE_ARM}")
-    ].copy()
+    timed_cell = getattr(module, "timed_cell", None)
+    cells = rows["cell"].astype(str)
+    reference = (
+        cells.map(timed_cell).astype(bool)
+        if timed_cell is not None
+        else cells.str.endswith(f"__{floor.REFERENCE_ARM}")
+    )
+    main = rows.loc[(rows["property"] == floor.FAMILY) & reference].copy()
     jackknife = rows.loc[
         (rows["property"] == floor.CANDIDATE_FAMILY)
         & rows["cell"].astype(str).str.endswith(f"__{floor.JACKKNIFE_ARM}")
     ].copy()
     for frame in (main, jackknife):
+        # A study with no part (c) family has no (C) rows, and an empty split has no columns.
         parts = frame["cell"].astype(str).str.split("__", expand=True)
+        parts = parts.reindex(columns=range(4)).fillna("j0").astype(str)
         frame["fit"], frame["clusters"] = parts[0], parts[2].str.removeprefix("j").astype(int)
     package = pd.to_numeric(main["package_glm_cpu_seconds"], errors="coerce").fillna(0.0)
     main["main_seconds"] = main["cpu_seconds"].astype(float) - package
@@ -345,7 +375,7 @@ def timing_table(
     table = table.merge(laws.reset_index(), on=["fit", "clusters"])
 
     def family(fit: str) -> str:
-        return str(study.FITS[fit]) if which == "tmle" else str(study.FIT)
+        return _family_of(which, module, fit)
 
     def projected(replicates: Any) -> float:
         seconds = sum(

@@ -517,6 +517,11 @@ def _known(fit: str) -> bool:
 
 def fit_point(fit: str, frame: pd.DataFrame, clusters: int, **overrides: Any) -> Any:
     """The ATE estimate of one point fit; ``overrides`` reach the estimator."""
+    return point_result(fit, frame, clusters, **overrides)[TARGET]
+
+
+def point_result(fit: str, frame: pd.DataFrame, clusters: int, **overrides: Any) -> Any:
+    """The fitted result of one point fit (``.single()``); ``overrides`` reach the estimator."""
     family = FITS[fit]
     roles: dict[str, Any] = {
         "outcome": "Y",
@@ -559,13 +564,13 @@ def fit_point(fit: str, frame: pd.DataFrame, clusters: int, **overrides: Any) ->
         settings.update(overrides)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            return DRTMLE(**settings).fit(frame, **roles).single()[TARGET]
+            return DRTMLE(**settings).fit(frame, **roles).single()
     else:  # pragma: no cover - a declared fit without a construction is a design defect
         raise KeyError(fit)
     settings.update(overrides)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return TMLE(**settings).fit(frame, **roles).single()[TARGET]
+        return TMLE(**settings).fit(frame, **roles).single()
 
 
 def ltmle_settings(*, package_glm: bool = False) -> dict[str, Any]:
@@ -593,6 +598,12 @@ def fit_estimate(fit: str, frame: pd.DataFrame, clusters: int, **overrides: Any)
         estimate = fit_ltmle_estimate(frame, **overrides)
     else:
         estimate = fit_point(fit, frame, clusters, **overrides)
+    return checked_reference_df(fit, clusters, estimate)
+
+
+def checked_reference_df(fit: str, clusters: int, estimate: Any) -> Any:
+    """``estimate``, once its ``reference_df`` is the fit's (:func:`expected_reference_df`)
+    wherever it supplies an interval."""
     expected = expected_reference_df(fit, clusters)
     if estimate.supplies_inference and estimate.reference_df != expected:
         raise AssertionError(
@@ -601,15 +612,15 @@ def fit_estimate(fit: str, frame: pd.DataFrame, clusters: int, **overrides: Any)
     return estimate
 
 
-def jackknife_estimate(fit: str, frame: pd.DataFrame, clusters: int) -> Any:
-    """The same fit with ``cluster_variance="jackknife"``.
+def jackknife_estimate(fit: str, frame: pd.DataFrame, clusters: int, **overrides: Any) -> Any:
+    """The same fit with ``cluster_variance="jackknife"``; ``overrides`` reach the estimator.
 
     The registered run measured the point-TMLE jackknife before its result refused the option
     (:data:`~cleverly.inference.cluster_jackknife.JACKKNIFE_FAMILY_REFUSALS`), so the study lifts
     that refusal to reproduce the construction it measured.
     """
     with mock.patch.object(cluster_jackknife, "JACKKNIFE_FAMILY_REFUSALS", {}):
-        return fit_estimate(fit, frame, clusters, cluster_variance="jackknife")
+        return fit_estimate(fit, frame, clusters, cluster_variance="jackknife", **overrides)
 
 
 def _package_glm_reading(frame: pd.DataFrame, truth: float, clusters: int) -> dict[str, Any]:
@@ -771,9 +782,11 @@ def jackknife_rows(
 
 
 def candidate_c(
-    fit: str, frame: pd.DataFrame, clusters: int, estimate: Any | None
+    fit: str, frame: pd.DataFrame, clusters: int, estimate: Any | None, **overrides: Any
 ) -> floor.Reading:
     """(C) on one draw, never raising: a refusal, a failed refit or an error is a withheld miss.
+
+    ``overrides`` reach the jackknife fit (``few-cluster-floor-stacked`` passes its bounds).
 
     A pre-fit refusal (``CapabilityError``, ``DataError``) reads ``jackknife_refused``; any
     other exception reads ``jackknife_error`` with its class and message; an estimate that
@@ -785,7 +798,7 @@ def candidate_c(
 
     psi = float("nan") if estimate is None else float(estimate.psi)
     try:
-        refit = jackknife_estimate(fit, frame, clusters)
+        refit = jackknife_estimate(fit, frame, clusters, **overrides)
     except (CapabilityError, DataError) as error:
         if estimate is None:  # the main fit's own failure, not an R5 refusal (review m-c1)
             return floor.failed_jackknife(psi, clusters, error)
