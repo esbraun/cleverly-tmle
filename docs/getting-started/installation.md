@@ -28,10 +28,10 @@ frame, needs `pyarrow`, which no extra installs: run `python -m pip install pyar
 Install third-party learners such as XGBoost or LightGBM separately and pass their
 scikit-learn-compatible objects directly.
 
-Pin the complete version you analysed with, for example 0.2.8:
+Pin the complete version you analysed with, for example 0.2.9:
 
 ```bash
-python -m pip install "cleverly[all]==0.2.8"
+python -m pip install "cleverly[all]==0.2.9"
 ```
 
 A later release can still contain a public API change. A result that one release saves loads in another release with a warning, and
