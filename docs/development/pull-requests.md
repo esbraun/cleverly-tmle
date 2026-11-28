@@ -192,5 +192,23 @@ Read [method benchmarking strategy](method-benchmarking.md) for the study design
 One person reviews. Expect findings, and answer each one in its own commit rather than in a
 comment alone.
 
-A pull request lands as a GitHub merge commit, so the branch commits stay in the history. The
-remote holds `main` alone, so delete your branch after the merge.
+A pull request lands as a GitHub merge commit, so the branch commits stay in the history.
+GitHub deletes the branch when the pull request merges.
+
+## Branches
+
+Push a branch whenever the work needs one. A weekly job deletes the branches nobody needs, so do
+not clean up by hand. It runs every Monday at 06:30 UTC. It deletes a branch that no open pull
+request uses and no keep list names, once its work is done or it has been idle for 14 days. Done means its tip is in `main`, a closed pull request ended at its tip, or every file it
+changed reads the same on `main`, as when its results were copied into another pull request. A
+done branch waits 3 days after its last push, and idle means no commit or push.
+
+Before it deletes a branch, the job saves the tip as `refs/archive/branches/<branch>/<date>`. That
+ref is not a branch, so clones and the branch list do not show it, but it keeps the commits. To
+see the saved copies, run `git ls-remote origin 'refs/archive/branches/*'`. To bring one back,
+fetch its ref with `git fetch origin refs/archive/branches/<branch>/<date>`, then run
+`git push origin FETCH_HEAD:refs/heads/<branch>`.
+
+To keep a branch that will sit idle, such as a held result or a long run's checkpoint branch, add
+a line `<branch or glob> <reason>` to `.github/branch-keep.txt` through a pull request. Delete the
+line when the branch is no longer needed. An open pull request also protects its branch.

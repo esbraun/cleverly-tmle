@@ -1,0 +1,8 @@
+# Branches the weekly stale-branch job never deletes, beyond its built-in protections (the
+# default branch, branches of open pull requests, and recent activity). The rules are in
+# docs/development/pull-requests.md, "Branches".
+#
+# One line each: <branch or glob> <reason>. Delete the line when the branch is no longer needed.
+#
+# Example:
+# claude/held-results-*  audit copies of study outputs that were not adopted
