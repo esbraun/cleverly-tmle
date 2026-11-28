@@ -1,7 +1,7 @@
 """Registered evidence for the step-down max-T adjustment of ``variable_importance`` (X125).
 
 Declared, not run. The record, the laws, the cells, the margins, the seeds and the sizing rule
-are fixed here before the pilot (design rev 2). The record is not in the register: a registered
+are fixed here before the pilot (design rev 2; the sizing rule, rev 3). The record is not in the register: a registered
 study must publish its artifacts, and the declared run has not happened. Until it lands,
 ``cleverly.variable_importance.PENDING_REASON`` keeps every configuration's adjustment label
 experimental, and :data:`EXEMPT_REASON` waits for the registration commit, which adds it to
@@ -32,15 +32,17 @@ own loop on draws it makes itself equal to cleverly's adjusted p-values (``rtol 
 and Benjamini-Hochberg recomputed by a rank loop equal to cleverly's ``_bh_adjust`` (and to
 scipy's ``false_discovery_control``).
 
-Order of work: this module and the property module merge declared; the pilot
+Order of work (design rev 3): the pilot
 (``python -m tests.studies.variable_importance_properties --pilot --raw DIR``) writes
-:data:`PILOT_PATH`; the declaration commit sets :data:`DECLARED_REPLICATES` from the committed
-pilot through :func:`declared_replicates`; then the declared run
-(``python -m tests.canonical.variable_importance.regenerate``).
+:data:`PILOT_PATH`; the pilot extension (``--pilot-extension --raw DIR``) reads the
+calibration law on 4,000 draws and writes :data:`PILOT_EXTENSION_PATH`; the declaration commit
+sets :data:`DECLARED_REPLICATES` from both through :func:`declared_replicates`; then the
+declared run (``python -m tests.canonical.variable_importance.regenerate``).
 """
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import math
 from collections.abc import Mapping, Sequence
@@ -60,7 +62,7 @@ from tests.studies import variable_importance_law as law_module
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS, reported_inference
-from tests.studies.evidence.seeds import draw_replicate, replicate_seed
+from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_seed
 
 SLUG = "variable-importance"
 #: Entropy unused anywhere under ``tests/`` (the design test checks it).
@@ -126,7 +128,20 @@ DECLARED_REPLICATES: int | None = None
 REPORTED_REPLICATES = 1_000
 WITNESS_REPLICATES = 1_000
 #: Above this no R sizes the family; the row thread stops and reports (design section 6).
-MAXIMUM_REPLICATES = 4_800
+#: Rev 3 raised it from 4,800: the arm-pooled predictive rule plans the calibration cells at
+#: their measured SE ratio, which needs more R than a cell planned at a ratio of 1.
+MAXIMUM_REPLICATES = 8_000
+#: The pilot extension (design rev 3, section 9): the calibration law's pilot stream carried
+#: to this many replicates, so each calibration arm is read on at least 3,000 draws
+#: (``guide/studies.md``, "Coverage readings") before the arm-pooled predictive rule sizes it.
+#: Replicates below :data:`PILOT_REPLICATES` repeat the pilot's own draws.
+PILOT_EXTENSION_REPLICATES = 4_000
+#: The extension's own stream, for its replicates from :data:`PILOT_REPLICATES` on.
+PILOT_EXTENSION_STREAM = "variable-importance/pilot-extension"
+PILOT_EXTENSION_PATH = ROOT / "tests" / "studies" / "variable_importance_pilot_extension.csv"
+#: A calibration arm whose plug-in pass at the at-target R falls below this needs the pilot
+#: extension before the declaration (``guide/studies.md``, "Calibration budgets across arms").
+EXTENSION_TRIGGER = 0.90
 #: The smoke run: the first replicates of two scenarios on the pilot stream, printed only.
 SMOKE_SCENARIOS = (
     scenario_name("independent_null", "in_sample"),
@@ -135,7 +150,7 @@ SMOKE_SCENARIOS = (
 SMOKE_REPLICATES = 12
 #: The CPU ceilings of the two runner briefs, in vCPU-hours.
 PILOT_CPU_CEILING_HOURS = 8.0
-RUN_CPU_CEILING_HOURS = 35.0
+RUN_CPU_CEILING_HOURS = 45.0
 #: Above this projected size of any one committed property file, in MB, the runner stops and
 #: reports (``COMPACT_BYTES`` of the evidence writer; GitHub refuses a file over 100 MB).
 ARTIFACT_CEILING_MB = 90.0
@@ -143,7 +158,12 @@ ARTIFACT_CEILING_MB = 90.0
 #: The per-replicate artifact: one row per replicate, configuration and adjustment set, with
 #: each parameter's estimate, standard error, residual margin, raw, max-T and BH p-values, and
 #: the replicate's correlation once (its 66 upper-triangle entries; review R2-6).
-REPLICATES_FILE = "variable-importance-replicates.csv"
+#: The per-replicate record of the property fits, one file per configuration so that each
+#: stays under GitHub's 100 MB limit at the declared R.
+REPLICATES_FILES: dict[str, str] = {
+    configuration: f"variable-importance-replicates-{configuration.replace('_', '-')}.csv"
+    for configuration in CONFIGURATIONS
+}
 
 #: The registration commit adds this entry to ``cleverly._support_rows.EXEMPT_STUDIES``.
 EXEMPT_REASON = (
@@ -436,8 +456,9 @@ PLANNING_POWER: dict[tuple[str, str], float] = {
 CALIBRATION_LAWS: tuple[str, ...] = ("independent_null", "negative_pairs_null")
 #: The laws whose FWER is gated under a ceiling.
 CEILING_LAWS: tuple[str, ...] = ("independent_mixed", "nulls_beside_signals", "dobriban_like")
-#: The interval-calibration rows of ``nulls_beside_signals``.
+#: The interval-calibration rows, and their law.
 CALIBRATION_ROWS: tuple[str, ...] = ("X1", "X5")
+CALIBRATION_LAW = "nulls_beside_signals"
 #: The rows of the ``one_sided`` power control (each has beta < 0).
 ONE_SIDED_ROWS: tuple[tuple[str, str], ...] = (
     ("independent_mixed", "X4"),
@@ -514,11 +535,15 @@ def cell_passes(
     coverage: Mapping[str, float] | None = None,
     kappa: float = PLANNING_KAPPA,
     configuration: str = "in_sample",
+    calibration: bool = True,
 ) -> dict[str, float]:
     """Each gated cell's pass probability for one configuration at ``replicates``.
 
     The three-level rows of the cross-fitted configuration have no support row and are not
-    gated (design section 7), so its power cells leave them out.
+    gated (design section 7), so its power cells leave them out. The calibration cells are
+    planned at target here, at coverage ``coverage[row]`` (0.95 by default) and an SE ratio
+    of 1; ``calibration=False`` leaves them out for :func:`calibration_pass` to plan from the
+    pilot extension.
     """
     passes: dict[str, float] = {}
     for law in CALIBRATION_LAWS:
@@ -543,10 +568,11 @@ def cell_passes(
             PLANNING_CONTROLS["one_sided"], replicates, 0.80
         )
     for row in CALIBRATION_ROWS:
-        planned = 0.95 if coverage is None else coverage[row]
-        passes[f"interval_calibration/{row}"] = se_ratio_pass(replicates, kappa) * pass_band(
-            planned, replicates, 0.92, 0.98
-        )
+        if calibration:
+            planned = 0.95 if coverage is None else coverage[row]
+            passes[f"interval_calibration/{row}"] = se_ratio_pass(replicates, kappa) * pass_band(
+                planned, replicates, 0.92, 0.98
+            )
         passes[f"interval_calibration/{row}/shrunken_se_control"] = pass_below(
             0.88, replicates, 0.92
         )
@@ -556,16 +582,172 @@ def cell_passes(
     return passes
 
 
-def family_pass(replicates: int, **planning: Any) -> float:
-    """The family-wise pass probability over both configurations at ``replicates``."""
-    return float(
+# Design rev 3, section 9: the calibration cells. Each (configuration, row) is an arm, read on
+# the pilot extension. The arm-pooled predictive rule (``guide/studies.md``, "Calibration
+# budgets across arms") pools the four arms' coverages, and separately their SE ratios, by a
+# normal-normal model with tau at its one-sided 80% Q-profile upper bound (as
+# ``band_t_reference`` pools coverages), draws each arm's planning value from the predictive
+# law, then the study's own Monte Carlo noise, and counts the draws in which every arm passes
+# both its coverage band and its SE-ratio band.
+
+#: The calibration arms, in a fixed order.
+CALIBRATION_ARMS: tuple[tuple[str, str], ...] = tuple(
+    (configuration, row) for configuration in CONFIGURATIONS for row in CALIBRATION_ROWS
+)
+SIZING_DRAWS = 40_000
+#: The Q-profile level of the pooled tau bound.
+POOLING_LEVEL = 0.80
+
+
+@dataclasses.dataclass(frozen=True)
+class ArmReading:
+    """One calibration arm's reading on the pilot or its extension.
+
+    Parameters
+    ----------
+    coverage : float
+        The share of intervals that cover the truth.
+    se_ratio : float
+        The mean standard error over the standard deviation of the estimates.
+    kappa : float
+        The bootstrap spread of the SE ratio times root R.
+    replicates : int
+        The draws behind the reading.
+    """
+
+    coverage: float
+    se_ratio: float
+    kappa: float
+    replicates: int
+
+
+def read_arms(readings: pd.DataFrame) -> dict[tuple[str, str], ArmReading]:
+    """Each calibration arm's reading from pilot-format readings (``pilot_readings``)."""
+
+    def value(kind: str, configuration: str, row: str) -> pd.Series:
+        hit = readings.loc[
+            (readings["kind"] == kind)
+            & (readings["configuration"] == configuration)
+            & (readings["row"] == row)
+        ]
+        if len(hit) != 1:
+            raise KeyError(f"{kind} of {row} {configuration}: {len(hit)} readings")
+        return hit.iloc[0]
+
+    arms = {}
+    for configuration, row in CALIBRATION_ARMS:
+        coverage = value("coverage_by_configuration", configuration, row)
+        arms[(configuration, row)] = ArmReading(
+            coverage=float(coverage["value"]),
+            se_ratio=float(value("se_ratio", configuration, row)["value"]),
+            kappa=float(value("se_ratio_kappa_by_configuration", configuration, row)["value"]),
+            replicates=int(coverage["replicates"]),
+        )
+    return arms
+
+
+def tau_bound(
+    y: np.ndarray, v: np.ndarray, level: float = POOLING_LEVEL
+) -> tuple[float, float, float]:
+    """The normal-normal pooling of readings ``y`` with variances ``v``: tau, mean, its SE.
+
+    Tau is the one-sided ``level`` Q-profile upper bound of the between-arm spread.
+    """
+
+    def q(t2: float) -> float:
+        w = 1.0 / (v + t2)
+        mu = float(np.sum(w * y) / np.sum(w))
+        return float(np.sum(w * (y - mu) ** 2))
+
+    critical = float(stats.chi2.ppf(1.0 - level, len(y) - 1))
+    t2 = 0.0 if q(0.0) <= critical else float(brentq(lambda t: q(t) - critical, 0.0, 1.0))
+    w = 1.0 / (v + t2)
+    return math.sqrt(t2), float(np.sum(w * y) / np.sum(w)), float(1.0 / math.sqrt(np.sum(w)))
+
+
+def _predictive(
+    y: np.ndarray, v: np.ndarray, rng: np.random.Generator, draws: int, *, pooled: bool
+) -> np.ndarray:
+    if not pooled:
+        return y + np.sqrt(v) * rng.standard_normal((draws, len(y)))
+    tau, mu, sd = tau_bound(y, v)
+    centre = mu + sd * rng.standard_normal(draws)
+    shrink = tau**2 / (v + tau**2)
+    return (
+        centre[:, None]
+        + shrink * (y - centre[:, None])
+        + np.sqrt(v * shrink) * rng.standard_normal((draws, len(y)))
+    )
+
+
+def calibration_pass(
+    replicates: int,
+    arms: Mapping[tuple[str, str], ArmReading],
+    *,
+    pooled: bool = True,
+    draws: int = SIZING_DRAWS,
+) -> float:
+    """The chance every calibration arm passes its coverage and SE-ratio bands at ``replicates``.
+
+    Each arm's SE-ratio interval is read as a normal of spread ``kappa / sqrt(replicates)``,
+    with the arm's own kappa, as :func:`se_ratio_pass` reads it.
+    """
+    rng = np.random.default_rng(stream_seed(STUDY, "sizing", "calibration", replicates))
+    readings = [arms[arm] for arm in CALIBRATION_ARMS]
+    count = np.array([arm.replicates for arm in readings], dtype=float)
+    coverage = np.array([arm.coverage for arm in readings])
+    ratio = np.array([arm.se_ratio for arm in readings])
+    kappa = np.array([arm.kappa for arm in readings])
+    planned_coverage = _predictive(
+        coverage, coverage * (1 - coverage) / count, rng, draws, pooled=pooled
+    )
+    planned_ratio = _predictive(ratio, kappa**2 / count, rng, draws, pooled=pooled)
+    hits = rng.binomial(replicates, np.clip(planned_coverage, 0.0, 1.0))
+    low, high = _cp(hits, replicates)
+    covered = (low >= 0.92) & (high <= 0.98)
+    spread = kappa / math.sqrt(replicates)
+    observed = planned_ratio + spread * rng.standard_normal(planned_ratio.shape)
+    band_low, band_high = SE_RATIO_BAND
+    within = (observed - Z995 * spread >= band_low) & (observed + Z995 * spread <= band_high)
+    return float(np.mean((covered & within).all(axis=1)))
+
+
+def plug_in_arm_pass(replicates: int, arm: ArmReading) -> float:
+    """One calibration arm's pass probability at its own reading, without pooling."""
+    return se_ratio_pass(replicates, arm.kappa, arm.se_ratio) * pass_band(
+        arm.coverage, replicates, 0.92, 0.98
+    )
+
+
+def family_pass(
+    replicates: int,
+    *,
+    arms: Mapping[tuple[str, str], ArmReading] | None = None,
+    **planning: Any,
+) -> float:
+    """The family-wise pass probability over both configurations at ``replicates``.
+
+    Without ``arms`` the calibration cells are planned at target; with them, by
+    :func:`calibration_pass`.
+    """
+    product = float(
         np.prod(
             [
-                np.prod(list(cell_passes(replicates, configuration=name, **planning).values()))
+                np.prod(
+                    list(
+                        cell_passes(
+                            replicates,
+                            configuration=name,
+                            calibration=arms is None,
+                            **planning,
+                        ).values()
+                    )
+                )
                 for name in CONFIGURATIONS
             ]
         )
     )
+    return product if arms is None else product * calibration_pass(replicates, arms)
 
 
 def size(**planning: Any) -> tuple[int | None, float]:
@@ -582,38 +764,65 @@ def read_pilot(path: Path = PILOT_PATH) -> pd.DataFrame | None:
     return pd.read_csv(path) if path.exists() else None
 
 
-def declared_replicates(pilot: pd.DataFrame | None = None) -> tuple[int, float]:
-    """The declared R and its family pass, from the committed pilot (or the planning values).
+def read_extension(path: Path = PILOT_EXTENSION_PATH) -> pd.DataFrame | None:
+    """The committed pilot-extension readings, or ``None`` before the extension has run."""
+    return pd.read_csv(path) if path.exists() else None
 
-    Each FWER cell takes the larger of its oracle and pilot values, unpooled; each calibration
-    row its pilot coverage; kappa the pilot's SE-ratio spread.
+
+def planning_fwer(*readings: pd.DataFrame | None) -> dict[tuple[str, float], float]:
+    """Each gated FWER cell's planning value: the largest of the oracle and every reading."""
+    fwer = dict(PLANNING_FWER)
+    for frame in readings:
+        if frame is None:
+            continue
+        for row in frame.loc[frame["kind"] == "fwer"].itertuples():
+            key = (str(row.law), float(row.alpha))
+            fwer[key] = max(fwer[key], float(row.value))
+    return fwer
+
+
+def declared_replicates(
+    pilot: pd.DataFrame | None = None, extension: pd.DataFrame | None = None
+) -> tuple[int, float]:
+    """The declared R and its family pass, from the committed pilot and its extension.
+
+    Each FWER cell takes the largest of its oracle, pilot and extension values, unpooled.
+    Without the extension, the calibration cells are planned at target (coverage 0.95, SE
+    ratio 1, the pilot's largest kappa); an arm whose plug-in pass at that R is below
+    :data:`EXTENSION_TRIGGER` stops the declaration until the extension runs. With the
+    extension, :func:`calibration_pass` plans the four arms from it.
 
     Raises
     ------
     RuntimeError
-        If no R up to :data:`MAXIMUM_REPLICATES` sizes the family: the row thread stops and
-        reports before any declaration (design section 6).
+        If an arm needs the pilot extension, or if no R up to :data:`MAXIMUM_REPLICATES`
+        sizes the family: the row thread stops and reports before any declaration (design
+        section 6).
     """
-    planning: dict[str, Any] = {}
+    planning: dict[str, Any] = {"fwer": planning_fwer(pilot, extension)}
     if pilot is not None:
-        fwer = dict(PLANNING_FWER)
-        for row in pilot.loc[pilot["kind"] == "fwer"].itertuples():
-            key = (str(row.law), float(row.alpha))
-            fwer[key] = max(fwer[key], float(row.value))
-        coverage = {
-            str(row.row): float(row.value)
-            for row in pilot.loc[pilot["kind"] == "coverage"].itertuples()
-        }
         kappas = pilot.loc[pilot["kind"] == "se_ratio_kappa", "value"]
-        planning = {"fwer": fwer, "coverage": coverage}
         if not kappas.empty:
             planning["kappa"] = float(kappas.max())
+    if extension is not None:
+        planning["arms"] = read_arms(extension)
     replicates, probability = size(**planning)
     if replicates is None:
         raise RuntimeError(
             f"no R up to {MAXIMUM_REPLICATES} sizes the family (pass {probability:.3f}); "
             "stop and report before any declaration"
         )
+    if extension is None and pilot is not None:
+        low = {
+            f"{row} {configuration}": round(plug_in_arm_pass(replicates, arm), 3)
+            for (configuration, row), arm in read_arms(pilot).items()
+            if plug_in_arm_pass(replicates, arm) < EXTENSION_TRIGGER
+        }
+        if low:
+            raise RuntimeError(
+                f"at the at-target R = {replicates}, calibration arms {low} pass below "
+                f"{EXTENSION_TRIGGER}: run the pilot extension (--pilot-extension) first"
+            )
     return replicates, probability
 
 
@@ -788,7 +997,7 @@ STUDY = StudyRecord(
     properties_module="tests.studies.variable_importance_properties",
     publication_policy="gated",
     property_cells=PROPERTY_CELLS,
-    property_artifacts=(REPLICATES_FILE,),
+    property_artifacts=tuple(REPLICATES_FILES.values()),
 )
 
 CONFIGURATION = {

@@ -95,19 +95,71 @@ def test_every_sized_cell_is_a_gated_cell_and_back() -> None:
         assert sized == gated
 
 
-def test_a_pilot_moves_fwer_planning_upward_only_and_can_stop_the_declaration() -> None:
-    pilot = pd.DataFrame(
-        [
-            {"kind": "fwer", "law": "independent_null", "alpha": 0.05, "row": "", "value": 0.01},
-            {"kind": "coverage", "law": "", "alpha": np.nan, "row": "X1", "value": 0.95},
-            {"kind": "coverage", "law": "", "alpha": np.nan, "row": "X5", "value": 0.95},
+def _arm_readings(coverage: float, ratio: float, replicates: int = 4_000) -> list[dict]:
+    rows = []
+    for configuration, row in study.CALIBRATION_ARMS:
+        common = {"law": "", "configuration": configuration, "alpha": np.nan, "row": row}
+        rows += [
+            {"kind": "coverage_by_configuration", "value": coverage, "replicates": replicates}
+            | common,
+            {"kind": "se_ratio", "value": ratio, "replicates": np.nan} | common,
+            {"kind": "se_ratio_kappa_by_configuration", "value": 0.69, "replicates": np.nan}
+            | common,
         ]
-    )
+    return rows
+
+
+def test_a_pilot_moves_fwer_planning_upward_only_and_can_stop_the_declaration() -> None:
+    fwer = {"kind": "fwer", "law": "independent_null", "alpha": 0.05, "row": "", "value": 0.01}
+    pilot = pd.DataFrame([fwer, *_arm_readings(0.95, 1.0, 800)])
+    assert study.planning_fwer(pilot) == study.PLANNING_FWER
     assert study.declared_replicates(pilot)[0] == 3_200
     liberal = pilot.copy()
     liberal.loc[0, "value"] = 0.068
+    assert study.planning_fwer(liberal)[("independent_null", 0.05)] == 0.068
     with pytest.raises(RuntimeError, match="stop and report"):
         study.declared_replicates(liberal)
+
+
+def test_an_arm_far_from_target_needs_the_pilot_extension() -> None:
+    # Rev 3: the committed pilot read X1 in sample at coverage 0.935 and SE ratio 0.949 on 800
+    # draws. At the at-target R its plug-in pass is far below 0.90, so the declaration waits
+    # for the extension (guide/studies.md, "Calibration budgets across arms").
+    pilot = study.read_pilot()
+    assert pilot is not None
+    with pytest.raises(RuntimeError, match="pilot extension"):
+        study.declared_replicates(pilot)
+    arms = study.read_arms(pilot)
+    assert set(arms) == set(study.CALIBRATION_ARMS)
+    assert study.plug_in_arm_pass(3_600, arms[("in_sample", "X1")]) < study.EXTENSION_TRIGGER
+
+
+def test_the_extension_sizes_the_calibration_arms_by_the_pooled_predictive_rule() -> None:
+    # Readings near the rev-3 probe (rows/X125/probes/coverage_rev3.py, 3,200 fresh draws per
+    # configuration with the pilot's 800): R = 6,000, where a perfectly calibrated set of arms
+    # would need far less, and the unpooled rule more.
+    extension = pd.DataFrame(_arm_readings(0.95, 1.0))
+    perfect, _ = study.declared_replicates(study.read_pilot(), extension)
+    assert perfect <= 4_000
+    probe = {
+        ("in_sample", "X1"): (0.9415, 0.975),
+        ("in_sample", "X5"): (0.9424, 0.9856),
+        ("cross_fitted", "X1"): (0.947, 0.996),
+        ("cross_fitted", "X5"): (0.953, 1.012),
+    }
+    arms = {
+        arm: study.ArmReading(coverage=c, se_ratio=q, kappa=0.6863, replicates=4_000)
+        for arm, (c, q) in probe.items()
+    }
+    assert study.calibration_pass(6_000, arms) > study.calibration_pass(6_000, arms, pooled=False)
+    fwer = study.planning_fwer(study.read_pilot())
+    replicates, probability = study.size(fwer=fwer, kappa=0.6863, arms=arms)
+    assert replicates == 6_000
+    assert probability >= study.SIZING_TARGET
+    assert study.family_pass(5_600, fwer=fwer, kappa=0.6863, arms=arms) < study.SIZING_TARGET
+    # A shortfall the band can resolve only at a very large R stops the declaration.
+    short = {arm: dataclasses.replace(arms[arm], se_ratio=0.945) for arm in arms}
+    assert study.size(fwer=fwer, kappa=0.6863, arms=short)[0] is None
 
 
 # ------------------------------------------------------------------------ the laws
@@ -220,12 +272,17 @@ def test_every_seed_of_the_declared_run_is_distinct() -> None:
     pilot = {
         properties.seed(law, r, pilot=True)
         for law in study.LAW_NAMES
-        for r in range(study.PILOT_REPLICATES)
+        for r in range(
+            study.PILOT_EXTENSION_REPLICATES
+            if law == study.CALIBRATION_LAW
+            else study.PILOT_REPLICATES
+        )
     }
     expected = (
         study.PRIMARY_REPLICATES * len(study.LAW_NAMES)
         + study.MAXIMUM_REPLICATES * len(study.LAW_NAMES)
-        + study.PILOT_REPLICATES * len(study.LAW_NAMES)
+        + study.PILOT_REPLICATES * (len(study.LAW_NAMES) - 1)
+        + study.PILOT_EXTENSION_REPLICATES
     )
     assert len(primary) + len(property_seeds) + len(pilot) == expected
     assert len(primary | property_seeds | pilot) == expected
@@ -257,8 +314,8 @@ def test_the_record_entropy_is_used_nowhere_else() -> None:
 
 def test_the_declared_run_waits_for_the_pilot_and_the_declaration() -> None:
     assert study.DECLARED_REPLICATES is None
-    assert not study.PILOT_PATH.exists()
-    assert study.read_pilot() is None
+    assert study.read_pilot() is not None
+    assert study.read_extension() is None
     assert study.SLUG not in {record.slug for record in registered()}
     with pytest.raises(RuntimeError, match="declaration commit"):
         properties.requested("independent_null")
@@ -278,7 +335,7 @@ def test_the_record_lists_its_modules_and_cells() -> None:
             assert "." not in cell and ":" not in cell, (family, cell)
     assert set(record.scenarios) == set(study.SCENARIOS)
     assert record.reported_scenarios == study.REPORTED_SCENARIOS
-    assert record.property_artifacts == (study.REPLICATES_FILE,)
+    assert record.property_artifacts == tuple(study.REPLICATES_FILES.values())
 
 
 def test_the_reported_families_are_diagnostic_everywhere() -> None:
@@ -470,6 +527,16 @@ def test_the_controls_are_recomputed_from_the_replicates_artifact(one_key) -> No
     assert by_cell[f"{stem}__X4__one_sided"]["rejected"] == int(one_sided[x4] <= 0.05)
     maxt = np.array([float(record[f"maxt_{label}"]) for label in labels])
     np.testing.assert_allclose(properties.stepped(distance, draws), maxt, atol=1e-3)
+
+
+def test_the_replicates_record_splits_by_configuration_under_the_size_ceiling(one_key) -> None:
+    _, _, records = one_key
+    frame = properties.formatted(pd.DataFrame(records))
+    split = properties.split_records(frame)
+    assert set(split) == set(study.REPLICATES_FILES.values())
+    assert sum(len(part) for part in split.values()) == len(frame)
+    for configuration, name in study.REPLICATES_FILES.items():
+        assert set(split[name]["configuration"]) <= {configuration}
 
 
 def test_every_cell_scenario_and_estimand_is_described() -> None:

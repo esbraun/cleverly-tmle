@@ -346,7 +346,7 @@ def replicate_record(
     result: Any,
     readings: dict[str, np.ndarray],
 ) -> dict[str, Any]:
-    """One row of :data:`~tests.studies.variable_importance.REPLICATES_FILE`."""
+    """One row of a :data:`~tests.studies.variable_importance.REPLICATES_FILES` file."""
     read = statistics(result)
     entries = study.fit_order(result)
     record: dict[str, Any] = {
@@ -375,8 +375,15 @@ def replicate_record(
 
 
 def seed(law: str, replicate: int, *, pilot: bool = False) -> int:
-    """A property sample's seed: the run stream, or the salted pilot stream."""
-    return stream_seed(STUDY, study.PILOT_STREAM if pilot else STREAM, law, replicate)
+    """A property sample's seed: the run stream, or the salted pilot stream.
+
+    Pilot replicates past the pilot's own count belong to the extension and take its stream.
+    """
+    if not pilot:
+        return stream_seed(STUDY, STREAM, law, replicate)
+    if replicate < study.PILOT_REPLICATES:
+        return stream_seed(STUDY, study.PILOT_STREAM, law, replicate)
+    return stream_seed(STUDY, study.PILOT_EXTENSION_STREAM, law, replicate)
 
 
 def require_recorded_pilots(what: str) -> None:
@@ -427,12 +434,16 @@ def payloads(
     budget: int | None = None,
     *,
     pilot: bool = False,
+    pilot_total: int = study.PILOT_REPLICATES,
     configurations: tuple[str, ...] = study.CONFIGURATIONS,
 ) -> list[_Key]:
-    """Every key, law by law; the witness rides on the first keys of its law (not the pilot)."""
+    """Every key, law by law; the witness rides on the first keys of its law (not the pilot).
+
+    A pilot key's count is ``pilot_total``: the pilot's, or the extension's.
+    """
     keys: list[_Key] = []
     for law in study.LAW_NAMES if laws is None else laws:
-        total = study.PILOT_REPLICATES if pilot else planned(law)
+        total = pilot_total if pilot else planned(law)
         count = total if budget is None else min(budget, total)
         for replicate in range(count):
             witness = (
@@ -599,7 +610,17 @@ def generate_property_artifacts(
     """
     require_recorded_pilots("the declared run")
     rows, records = _fit_all(payloads(budget=budget), n_jobs)
-    return _ordered(with_controls(rows)), {study.REPLICATES_FILE: formatted(records)}
+    return _ordered(with_controls(rows)), split_records(formatted(records))
+
+
+def split_records(records: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """The replicates record, one frame per configuration's file (empty frames for none)."""
+    if "configuration" not in records.columns:
+        return {name: records.copy() for name in study.REPLICATES_FILES.values()}
+    return {
+        name: records.loc[records["configuration"] == configuration].reset_index(drop=True)
+        for configuration, name in study.REPLICATES_FILES.items()
+    }
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
@@ -927,10 +948,12 @@ def projected_megabytes(rows: pd.DataFrame, records: pd.DataFrame) -> dict[str, 
         path = Path(directory) / "rows.parquet"
         write_rows(_ordered(with_controls(rows)), path)
         rows_bytes = path.stat().st_size
-    return {
-        study.REPLICATES_FILE: len(text.getvalue().encode()) / count * fits / 1e6,
-        "property-replicates.parquet": rows_bytes / count * keys * configurations / 1e6,
-    }
+    per_fit = len(text.getvalue().encode()) / count
+    sizes = dict.fromkeys(
+        study.REPLICATES_FILES.values(), per_fit * fits / configurations / 1000000.0
+    )
+    sizes["property-replicates.parquet"] = rows_bytes / count * keys * configurations / 1e6
+    return sizes
 
 
 def smoke(replicates: int = study.SMOKE_REPLICATES) -> None:
@@ -972,12 +995,35 @@ def run_pilot(raw: Path, *, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return readings
 
 
+def run_pilot_extension(raw: Path, *, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+    """The pilot extension (design rev 3): the calibration law on the pilot stream to 4,000.
+
+    Replicates below the pilot's 800 repeat its draws, so every reading covers one block of
+    :data:`~tests.studies.variable_importance.PILOT_EXTENSION_REPLICATES` disjoint draws.
+    Checkpointed under ``raw``; writes
+    :data:`~tests.studies.variable_importance.PILOT_EXTENSION_PATH`.
+    """
+    raw.mkdir(parents=True, exist_ok=True)
+    keys = payloads(
+        [study.CALIBRATION_LAW], pilot=True, pilot_total=study.PILOT_EXTENSION_REPLICATES
+    )
+    with recording(STUDY.implementation, witness=PROPERTY_WITNESS) as recorded:
+        rows, records = _fit_all(keys, n_jobs, checkpoint=raw / "checkpoints")
+    rows.to_csv(raw / "extension-rows.csv", index=False)
+    formatted(records).to_csv(raw / "extension-replicates.csv", index=False)
+    print(f"failure records: {sum(len(frame) for frame in recorded.frames)}")
+    readings = pilot_readings(rows)
+    readings.to_csv(study.PILOT_EXTENSION_PATH, index=False)
+    return readings
+
+
 def main(argv: Sequence[str] | None = None) -> None:
-    """``--smoke``, or ``--pilot --raw DIR``."""
+    """``--smoke``, ``--pilot --raw DIR`` or ``--pilot-extension --raw DIR``."""
     parser = argparse.ArgumentParser(description=f"{study.SLUG} pilot and smoke")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--smoke", action="store_true")
     group.add_argument("--pilot", action="store_true")
+    group.add_argument("--pilot-extension", action="store_true")
     parser.add_argument("--raw", type=Path, help="the pilot's raw and checkpoint directory")
     parser.add_argument("--jobs", type=int, default=STUDY_JOBS)
     arguments = parser.parse_args(argv)
@@ -985,13 +1031,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         smoke()
         return
     if arguments.raw is None:
-        parser.error("--pilot needs --raw DIR, outside the repository and outside /tmp")
-    readings = run_pilot(arguments.raw, n_jobs=arguments.jobs)
+        parser.error("the pilot needs --raw DIR, outside the repository and outside /tmp")
+    if arguments.pilot_extension:
+        readings = run_pilot_extension(arguments.raw, n_jobs=arguments.jobs)
+        pilot, extension = study.read_pilot(), readings
+    else:
+        readings = run_pilot(arguments.raw, n_jobs=arguments.jobs)
+        pilot, extension = readings, study.read_extension()
     with pd.option_context(
         "display.width", 200, "display.max_rows", 400, "display.max_columns", 20
     ):
         print(readings)
-    replicates, probability = study.declared_replicates(readings)
+    replicates, probability = study.declared_replicates(pilot, extension)
     print(f"declared R: {replicates} (family pass {probability:.3f})")
 
 
