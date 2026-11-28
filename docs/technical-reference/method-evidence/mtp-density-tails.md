@@ -234,9 +234,25 @@ estimators:
   carry a positive bias on both estimators (0.0010 and 0.0015), and coverage stays inside its
   band.
 
-Each departure is a difference of a few percent between two estimators' empirical spread under
-a common standard error, and none is a coverage failure. Under the declared rule a reported row
-outside the band is diagnosed and reported, not a red row, and none is rerun.
+The two `up` rows are a difference of a few percent between two estimators' empirical spread
+under a common standard error. The `SDR` scale row is more than that: its coverage interval
+excludes 0.95, and the `LTMLE` scale contrast reads the same shortfall (SE ratio 0.972, coverage
+0.942). Under the declared rule a reported row outside the band is diagnosed and reported, not a
+red row, and none is rerun.
+
+**The scale-policy interval.** The shortfall comes from the default classifier stack's ratio,
+not from the influence-curve formula. Splitting each registered estimate's error into the exact
+first-order term and a remainder, on `scale at 2` the remainder carries 13% of the estimates'
+variance, runs against the first-order term, and carries the bias. With the correctly specified
+classifier the remainder falls to 2% of the variance and the fitted curve's variance matches the
+efficient influence function's (ratio 1.03, SE ratio 1.05, 400 draws). With correct outcome
+regressions and the default stack, the fitted curve's variance stays near 0.8 of the efficient
+influence function's at n = 2,000 and at n = 8,000 (0.80 and 0.81, 400 draws each), while the
+estimates' spread reaches the efficiency bound at 8,000; there the SE ratio is 0.894 and coverage
+0.928. So this interval runs about 10% narrow and does not improve with n, because the stack's
+fitted ratio is shrunk toward one where a scale policy's ratio rises steeply below its cap. These
+readings come from diagnostic runs, not registered cells, and estimates on this route keep the
+`experimental` label.
 
 ## Measured values and declared margins
 
