@@ -88,7 +88,6 @@ different pages and run in parallel.
 | --- | --- | --- | --- |
 | [X116](#x116-technical-reference-method-pages) Technical reference: method pages | docs | no new theory | X6 part (d) for the continuous-time bootstrap sentences |
 | [X121](#x121-policy-rule-and-effect-curve-example-notebooks) Policy, rule and effect-curve example notebooks | docs | no new theory | the registration of the `point-shift-learned-density` study, for the learned-density shift |
-| [X122](#x122-new-tutorials-for-shipped-methods-that-no-example-fits) New tutorials for shipped methods that no example fits | docs | no new theory | the X6 part (d) studies, for the exact-time tutorial's bootstrap lesson |
 | [X125](#x125-registered-study-of-variable-importance) Registered study of variable importance | docs | a source read on multiplicity control across dependent candidate fits comes first | the shipped `variable_importance` |
 
 ### Survival and time to event
@@ -657,22 +656,6 @@ page shows only a fit without one. The `trial-with-external-data` part also runs
 once against the generator's known truth, the part of X113 (d) that a Markdown guide cannot show.
 All six notebooks are delivered. Left: the registered study of a point shift with a learned density
 (`point-shift-learned-density`); until it registers, that fit reads experimental.
-
-### X122. New tutorials for shipped methods that no example fits
-
-- (a) Exact event times and competing risks with the continuous-time survival fit. Delivered:
-  [readmission or death with exact event times](examples/exact-event-times.ipynb).
-- (b) Conditional effects with intervals: projection coefficients, the heterogeneity test, the
-  band, external-score assessment and targeting curves. Delivered: [subgroup effects](examples/subgroup-effects.ipynb),
-  with the rest on [conditional effects](examples/conditional-effects.ipynb).
-- (c) Sampling weights, strata and missing treatment values on a point treatment. Delivered:
-  [sampling weights](examples/sampling-weights.ipynb).
-- (d) Ranking candidate exposures. Delivered: [ranking exposures](examples/ranking-exposures.ipynb).
-- (e) Choosing nuisance learners: the default library, a declared super learner and screening.
-  Delivered: [learner choice](examples/learner-choice.ipynb).
-- (f) A learned rule over two decisions. Delivered: [two decisions after discharge](examples/two-decision-rules.ipynb).
-
-Each follows `docs/development/example-notebooks.md`, on simulated data with a known answer.
 
 ### X125. Registered study of variable importance
 
