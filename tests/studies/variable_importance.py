@@ -35,7 +35,7 @@ scipy's ``false_discovery_control``).
 Order of work (design rev 3): the pilot
 (``python -m tests.studies.variable_importance_properties --pilot --raw DIR``) writes
 :data:`PILOT_PATH`; the pilot extension (``--pilot-extension --raw DIR``) reads the
-calibration law on 4,000 draws and writes :data:`PILOT_EXTENSION_PATH`; the declaration commit
+calibration law on 8,000 fresh draws and writes :data:`PILOT_EXTENSION_PATH`; the declaration commit
 sets :data:`DECLARED_REPLICATES` from both through :func:`declared_replicates`; then the
 declared run (``python -m tests.canonical.variable_importance.regenerate``).
 """
