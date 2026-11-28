@@ -70,7 +70,9 @@ SEED = 2026112601
 RESAMPLING_SEED = 2026112602
 #: The one sample size of the record (design section 6).
 N = 4_000
-PRIMARY_REPLICATES = 1_000
+#: Rev 3: 1,600, not 1,000, so the 120 gated primary coverage floors fit the family pass
+#: (review B1): at 1,000 they alone carried a 3% to 12% chance of a false red.
+PRIMARY_REPLICATES = 1_600
 #: The configurations and the laws, in scenario order.
 CONFIGURATIONS: tuple[str, ...] = ("in_sample", "cross_fitted")
 LAW_NAMES: tuple[str, ...] = tuple(law_module.LAWS)
@@ -131,12 +133,12 @@ WITNESS_REPLICATES = 1_000
 #: Rev 3 raised it from 4,800: the arm-pooled predictive rule plans the calibration cells at
 #: their measured SE ratio, which needs more R than a cell planned at a ratio of 1.
 MAXIMUM_REPLICATES = 8_000
-#: The pilot extension (design rev 3, section 9): the calibration law's pilot stream carried
-#: to this many replicates, so each calibration arm is read on at least 3,000 draws
-#: (``guide/studies.md``, "Coverage readings") before the arm-pooled predictive rule sizes it.
-#: Replicates below :data:`PILOT_REPLICATES` repeat the pilot's own draws.
+#: The pilot extension (design rev 3, section 9a): this many fresh draws of the calibration
+#: law, replicates :data:`PILOT_REPLICATES` onward on their own stream, so each calibration
+#: arm is read on at least 3,000 draws (``guide/studies.md``, "Coverage readings") before the
+#: predictive rule sizes it. It leaves out the pilot's 800, which triggered it (review S3).
 PILOT_EXTENSION_REPLICATES = 4_000
-#: The extension's own stream, for its replicates from :data:`PILOT_REPLICATES` on.
+#: The extension's own stream.
 PILOT_EXTENSION_STREAM = "variable-importance/pilot-extension"
 PILOT_EXTENSION_PATH = ROOT / "tests" / "studies" / "variable_importance_pilot_extension.csv"
 #: A calibration arm whose plug-in pass at the at-target R falls below this needs the pilot
@@ -150,7 +152,7 @@ SMOKE_SCENARIOS = (
 SMOKE_REPLICATES = 12
 #: The CPU ceilings of the two runner briefs, in vCPU-hours.
 PILOT_CPU_CEILING_HOURS = 8.0
-RUN_CPU_CEILING_HOURS = 45.0
+RUN_CPU_CEILING_HOURS = 50.0
 #: Above this projected size of any one committed property file, in MB, the runner stops and
 #: reports (``COMPACT_BYTES`` of the evidence writer; GitHub refuses a file over 100 MB).
 ARTIFACT_CEILING_MB = 90.0
@@ -582,13 +584,15 @@ def cell_passes(
     return passes
 
 
-# Design rev 3, section 9: the calibration cells. Each (configuration, row) is an arm, read on
+# Design rev 3, section 9a: the calibration cells. Each (configuration, row) is an arm, read on
 # the pilot extension. The arm-pooled predictive rule (``guide/studies.md``, "Calibration
-# budgets across arms") pools the four arms' coverages, and separately their SE ratios, by a
+# budgets across arms") pools the arms' coverages, and separately their SE ratios, by a
 # normal-normal model with tau at its one-sided 80% Q-profile upper bound (as
-# ``band_t_reference`` pools coverages), draws each arm's planning value from the predictive
-# law, then the study's own Monte Carlo noise, and counts the draws in which every arm passes
-# both its coverage band and its SE-ratio band.
+# ``band_t_reference`` pools coverages), within each configuration only: an in-sample fit's
+# SE ratio sits systematically below a cross-fitted one's, so the configurations are not
+# exchangeable (review S1). It draws each arm's planning value from the predictive law, then
+# the study's own Monte Carlo noise, and counts the draws in which every arm passes both its
+# coverage band and its SE-ratio band.
 
 #: The calibration arms, in a fixed order.
 CALIBRATION_ARMS: tuple[tuple[str, str], ...] = tuple(
@@ -698,10 +702,20 @@ def calibration_pass(
     coverage = np.array([arm.coverage for arm in readings])
     ratio = np.array([arm.se_ratio for arm in readings])
     kappa = np.array([arm.kappa for arm in readings])
-    planned_coverage = _predictive(
-        coverage, coverage * (1 - coverage) / count, rng, draws, pooled=pooled
-    )
-    planned_ratio = _predictive(ratio, kappa**2 / count, rng, draws, pooled=pooled)
+    planned_coverage = np.empty((draws, len(readings)))
+    planned_ratio = np.empty((draws, len(readings)))
+    for configuration in CONFIGURATIONS:
+        group = np.array([arm[0] == configuration for arm in CALIBRATION_ARMS])
+        planned_coverage[:, group] = _predictive(
+            coverage[group],
+            coverage[group] * (1 - coverage[group]) / count[group],
+            rng,
+            draws,
+            pooled=pooled,
+        )
+        planned_ratio[:, group] = _predictive(
+            ratio[group], kappa[group] ** 2 / count[group], rng, draws, pooled=pooled
+        )
     hits = rng.binomial(replicates, np.clip(planned_coverage, 0.0, 1.0))
     low, high = _cp(hits, replicates)
     covered = (low >= 0.92) & (high <= 0.98)
@@ -719,6 +733,37 @@ def plug_in_arm_pass(replicates: int, arm: ArmReading) -> float:
     )
 
 
+#: The planning coverage of the primary rows, by configuration: the rev-3 probe's mean over
+#: the twelve rows of ``nulls_beside_signals`` on 3,200 fresh draws (0.947 in sample, 0.952
+#: cross-fitted; ``rows/X125/probes/coverage_rev3_summary.csv`` in the plans repo), rounded
+#: down. Every gated scenario's twelve primary rows are planned at it.
+PRIMARY_PLANNING_COVERAGE: dict[str, float] = {"in_sample": 0.946, "cross_fitted": 0.952}
+#: The primary coverage floor: the 99% Clopper-Pearson lower bound at least this
+#: (``Margins().coverage_floor``, read by ``tests/studies/evidence/performance.py``).
+PRIMARY_COVERAGE_FLOOR = 0.90
+
+
+def primary_pass(replicates: int = PRIMARY_REPLICATES) -> float:
+    """The chance every gated primary coverage cell passes its floor at ``replicates``.
+
+    The bias and SE-ratio gates of the primaries pass with probability indistinguishable from
+    1 at these readings (bias at most 0.03 SD against 0.25, SE ratio more than five SDs inside
+    [0.80, 1.20]; review rev 3, table), so the coverage floor stands for them.
+    """
+    gated_laws = [law for law in LAW_NAMES if law in GATED_LAWS]
+    return float(
+        np.prod(
+            [
+                pass_floor(
+                    PRIMARY_PLANNING_COVERAGE[configuration], replicates, PRIMARY_COVERAGE_FLOOR
+                )
+                ** (len(gated_laws) * len(ESTIMANDS))
+                for configuration in CONFIGURATIONS
+            ]
+        )
+    )
+
+
 def family_pass(
     replicates: int,
     *,
@@ -728,7 +773,7 @@ def family_pass(
     """The family-wise pass probability over both configurations at ``replicates``.
 
     Without ``arms`` the calibration cells are planned at target; with them, by
-    :func:`calibration_pass`.
+    :func:`calibration_pass`. Both include the primary coverage floors (:func:`primary_pass`).
     """
     product = float(
         np.prod(
@@ -747,6 +792,7 @@ def family_pass(
             ]
         )
     )
+    product *= primary_pass()
     return product if arms is None else product * calibration_pass(replicates, arms)
 
 

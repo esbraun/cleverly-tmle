@@ -121,6 +121,23 @@ def test_a_pilot_moves_fwer_planning_upward_only_and_can_stop_the_declaration() 
         study.declared_replicates(liberal)
 
 
+def test_the_primary_floors_join_the_family_and_fit_it_at_1600() -> None:
+    # Review B1: 120 gated primary coverage floors. At 1,000 replicates and the probe's
+    # in-sample coverage they alone fail with probability about 0.12; at 1,600 about 0.0002.
+    assert study.PRIMARY_REPLICATES == 1_600
+    assert study.primary_pass(1_000) < 0.90
+    assert study.primary_pass() >= 0.999
+    without = study.family_pass(3_200) / study.primary_pass()
+    assert without == pytest.approx(
+        np.prod(
+            [
+                np.prod(list(study.cell_passes(3_200, configuration=name).values()))
+                for name in study.CONFIGURATIONS
+            ]
+        )
+    )
+
+
 def test_an_arm_far_from_target_needs_the_pilot_extension() -> None:
     # Rev 3: the committed pilot read X1 in sample at coverage 0.935 and SE ratio 0.949 on 800
     # draws. At the at-target R its plug-in pass is far below 0.90, so the declaration waits
@@ -136,8 +153,9 @@ def test_an_arm_far_from_target_needs_the_pilot_extension() -> None:
 
 def test_the_extension_sizes_the_calibration_arms_by_the_pooled_predictive_rule() -> None:
     # Readings near the rev-3 probe (rows/X125/probes/coverage_rev3.py, 3,200 fresh draws per
-    # configuration with the pilot's 800): R = 6,000, where a perfectly calibrated set of arms
-    # would need far less, and the unpooled rule more.
+    # configuration with the pilot's 800): R = 6,800 when pooled within each configuration
+    # (review S1), where a perfectly calibrated set of arms would need far less, and the
+    # unpooled rule more.
     extension = pd.DataFrame(_arm_readings(0.95, 1.0))
     perfect, _ = study.declared_replicates(study.read_pilot(), extension)
     assert perfect <= 4_000
@@ -154,9 +172,9 @@ def test_the_extension_sizes_the_calibration_arms_by_the_pooled_predictive_rule(
     assert study.calibration_pass(6_000, arms) > study.calibration_pass(6_000, arms, pooled=False)
     fwer = study.planning_fwer(study.read_pilot())
     replicates, probability = study.size(fwer=fwer, kappa=0.6863, arms=arms)
-    assert replicates == 6_000
+    assert replicates == 6_800
     assert probability >= study.SIZING_TARGET
-    assert study.family_pass(5_600, fwer=fwer, kappa=0.6863, arms=arms) < study.SIZING_TARGET
+    assert study.family_pass(6_400, fwer=fwer, kappa=0.6863, arms=arms) < study.SIZING_TARGET
     # A shortfall the band can resolve only at a very large R stops the declaration.
     short = {arm: dataclasses.replace(arms[arm], se_ratio=0.945) for arm in arms}
     assert study.size(fwer=fwer, kappa=0.6863, arms=short)[0] is None
@@ -273,7 +291,7 @@ def test_every_seed_of_the_declared_run_is_distinct() -> None:
         properties.seed(law, r, pilot=True)
         for law in study.LAW_NAMES
         for r in range(
-            study.PILOT_EXTENSION_REPLICATES
+            study.PILOT_REPLICATES + study.PILOT_EXTENSION_REPLICATES
             if law == study.CALIBRATION_LAW
             else study.PILOT_REPLICATES
         )
@@ -281,7 +299,7 @@ def test_every_seed_of_the_declared_run_is_distinct() -> None:
     expected = (
         study.PRIMARY_REPLICATES * len(study.LAW_NAMES)
         + study.MAXIMUM_REPLICATES * len(study.LAW_NAMES)
-        + study.PILOT_REPLICATES * (len(study.LAW_NAMES) - 1)
+        + study.PILOT_REPLICATES * len(study.LAW_NAMES)
         + study.PILOT_EXTENSION_REPLICATES
     )
     assert len(primary) + len(property_seeds) + len(pilot) == expected
@@ -315,7 +333,6 @@ def test_the_record_entropy_is_used_nowhere_else() -> None:
 def test_the_declared_run_waits_for_the_pilot_and_the_declaration() -> None:
     assert study.DECLARED_REPLICATES is None
     assert study.read_pilot() is not None
-    assert study.read_extension() is None
     assert study.SLUG not in {record.slug for record in registered()}
     with pytest.raises(RuntimeError, match="declaration commit"):
         properties.requested("independent_null")

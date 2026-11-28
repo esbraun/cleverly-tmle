@@ -435,17 +435,20 @@ def payloads(
     *,
     pilot: bool = False,
     pilot_total: int = study.PILOT_REPLICATES,
+    pilot_first: int = 0,
     configurations: tuple[str, ...] = study.CONFIGURATIONS,
 ) -> list[_Key]:
     """Every key, law by law; the witness rides on the first keys of its law (not the pilot).
 
-    A pilot key's count is ``pilot_total``: the pilot's, or the extension's.
+    Pilot keys run from replicate ``pilot_first`` to ``pilot_total``: the pilot's, or the
+    extension's. Each key carries the number of replicates requested of its cells.
     """
     keys: list[_Key] = []
     for law in study.LAW_NAMES if laws is None else laws:
         total = pilot_total if pilot else planned(law)
         count = total if budget is None else min(budget, total)
-        for replicate in range(count):
+        first = pilot_first if pilot else 0
+        for replicate in range(first, count):
             witness = (
                 not pilot
                 and law == study.WITNESS_LAW
@@ -456,7 +459,7 @@ def payloads(
                     (
                         law,
                         replicate,
-                        count,
+                        count - first,
                         seed(law, replicate, pilot=pilot),
                         witness,
                         configurations,
@@ -996,16 +999,19 @@ def run_pilot(raw: Path, *, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 def run_pilot_extension(raw: Path, *, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    """The pilot extension (design rev 3): the calibration law on the pilot stream to 4,000.
+    """The pilot extension (design rev 3, 9a): 4,000 fresh draws of the calibration law.
 
-    Replicates below the pilot's 800 repeat its draws, so every reading covers one block of
-    :data:`~tests.studies.variable_importance.PILOT_EXTENSION_REPLICATES` disjoint draws.
+    Replicates 800 to 4,799, on the extension's stream, leaving out the pilot's 800, so every
+    reading covers :data:`~tests.studies.variable_importance.PILOT_EXTENSION_REPLICATES` draws.
     Checkpointed under ``raw``; writes
     :data:`~tests.studies.variable_importance.PILOT_EXTENSION_PATH`.
     """
     raw.mkdir(parents=True, exist_ok=True)
     keys = payloads(
-        [study.CALIBRATION_LAW], pilot=True, pilot_total=study.PILOT_EXTENSION_REPLICATES
+        [study.CALIBRATION_LAW],
+        pilot=True,
+        pilot_first=study.PILOT_REPLICATES,
+        pilot_total=study.PILOT_REPLICATES + study.PILOT_EXTENSION_REPLICATES,
     )
     with recording(STUDY.implementation, witness=PROPERTY_WITNESS) as recorded:
         rows, records = _fit_all(keys, n_jobs, checkpoint=raw / "checkpoints")
