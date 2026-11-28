@@ -18,9 +18,10 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly import CausalStudy, LearnedRuleValue, PointTreatment
+from cleverly import CausalStudy, LearnedRuleContrast, LearnedRuleValue, PointTreatment
 from cleverly._summary.vocabulary import NOTE_TEXTS
 from cleverly.exceptions import CapabilityError, DataError, RefusalReason
+from cleverly.interventions import NaturalCourse, Static, Stochastic
 from cleverly.interventions.learned import FrozenLearnedRule, fold_rules, freeze_learned_rule
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 from cleverly.sensitivity import _simulated_confounding_request as request_module
@@ -408,3 +409,232 @@ def test_an_unseeded_frozen_level_fit_replays_with_its_own_seeds(
     assert refit(replay, result.data, **keywords)[support.NAME].psi == result[support.NAME].psi
     stale = refit(replay, result.data, **{k: v for k, v in keywords.items() if k != "frozen_seeds"})
     assert stale[support.NAME].psi != result[support.NAME].psi
+
+
+# ----------------------------------------------- the frozen replay beside comparators
+#
+# X11 (f4c).  The learned rules are frozen as FrozenLearnedRule and every known comparator at
+# the densities the fit stored; the natural course carries no array.
+
+
+def _offer(w: Any) -> np.ndarray:
+    p = 0.5 * (np.asarray(w["W1"]) > 0)
+    return np.column_stack([1.0 - p, p])
+
+
+_CONTRASTS: dict[str, Any] = {
+    "known": lambda: LearnedRuleContrast(
+        against=(Static(0), Stochastic(_offer, name="offer", density_kind="known"))
+    ),
+    "natural": lambda: LearnedRuleContrast(against=(NaturalCourse(),)),
+}
+
+#: W-f4c: over the four cells the rule cell and each comparator cell of the "known" fit differ
+#: by 0.043 to 0.138 (observed); the margin is half the smallest.
+W_F4C_COLUMN_GAP = 0.02
+
+
+@cache
+def _contrast_fit(name: str, repeats: int = 1) -> Any:
+    study = CausalStudy(
+        support.law_frame(n=_N),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=support.COVARIATES),
+    )
+    return study.identify(_CONTRASTS[name]()).estimate(
+        outcome_learner=support.outcome_learner(),
+        treatment_learner=support.treatment_learner(),
+        n_folds=5,
+        cv_evaluation=True,
+        simultaneous=False,
+        random_state=0,
+        repeats=repeats,
+    )
+
+
+@cache
+def _contrast_surfaces(name: str) -> dict[str, Any]:
+    result = _contrast_fit(name)
+    return {
+        alias: simulated_confounding(result, estimand=alias, grid=_GRID, random_state=_SEED)
+        for alias in result.estimates
+        if not alias.startswith("ey_natural_course[")
+    }
+
+
+@pytest.mark.parametrize("name", list(_CONTRASTS))
+class TestTheFrozenReplayBesideComparators:
+    """The anchor, the manual refit, the contrast, the freeze, R2 and R4 (plan 4.5)."""
+
+    def test_every_cell_of_every_alias_is_the_frozen_refit(self, name: str) -> None:
+        result, surfaces = _contrast_fit(name), _contrast_surfaces(name)
+        assert result.sensitivity.capability("simulated_confounding").available
+        reproduced = _frozen_refit(result, result.data)
+        first = next(iter(surfaces.values()))
+        for alias, surface in surfaces.items():
+            assert surface.complete
+            assert surface.cells[0].estimate == result[alias].psi
+            assert reproduced[alias].psi == result[alias].psi
+        for index, cell in enumerate(first.cells[1:], start=1):
+            data = _replacement(result, first, cell.treatment_strength, cell.outcome_strength)
+            # The manual refit evaluates the declared comparators again.
+            manual = _frozen_refit(result, data)
+            for alias, surface in surfaces.items():
+                assert surface.cells[index].estimate == pytest.approx(
+                    manual[alias].psi, abs=1e-12
+                ), alias
+
+    def test_each_contrast_is_the_rule_cell_minus_the_comparator_cell(self, name: str) -> None:
+        result, surfaces = _contrast_fit(name), _contrast_surfaces(name)
+        rule = surfaces[support.NAME]
+        folds = result.nuisance.folds
+        for alias, surface in surfaces.items():
+            if not alias.startswith("ate_learned_rule["):
+                continue
+            comparator = alias.split(" vs ")[1].rstrip("]")
+            for index, cell in enumerate(surface.cells):
+                if comparator == "natural course":
+                    if index == 0:
+                        outcome = result.data.outcome
+                    else:
+                        outcome = _replacement(
+                            result, surface, cell.treatment_strength, cell.outcome_strength
+                        ).outcome
+                    other = float(np.mean([outcome[test].mean() for _, test in folds]))
+                else:
+                    other = surfaces[f"ey_known_regime[{comparator}]"].cells[index].estimate
+                    assert abs(rule.cells[index].estimate - other) > W_F4C_COLUMN_GAP
+                assert cell.estimate == pytest.approx(rule.cells[index].estimate - other, abs=1e-12)
+
+    def test_every_alias_carries_the_frozen_reading(self, name: str) -> None:
+        """W-f4c-read."""
+        for surface in _contrast_surfaces(name).values():
+            codes = [n.code for n in surface.summary().notes]
+            assert surface.rule_replay == "frozen"
+            assert "learned_rule_reading" in codes and "optimal_rule_reading" not in codes
+
+    def test_a_cell_averages_the_fold_values_with_equal_weights(self, name: str) -> None:
+        """W-f4c-fold: folds of 81 and 80 rows, for the rule and the first contrast."""
+        result, surfaces = _contrast_fit(name), _contrast_surfaces(name)
+        cell = surfaces[support.NAME].cells[-1]
+        data = _replacement(
+            result, surfaces[support.NAME], cell.treatment_strength, cell.outcome_strength
+        )
+        refit = _frozen_refit(result, data)
+        (split,) = refit.extra["learned_rule"].splits
+        assert split.fold_sizes == (81, 81, 81, 80, 80)
+        contrast = next(a for a in surfaces if a.startswith("ate_learned_rule["))
+        assert np.allclose(
+            _fold_values(result, refit, support.NAME), split.fold_estimates, atol=1e-12
+        )
+        for alias in (support.NAME, contrast):
+            folds = _fold_values(result, refit, alias)
+            sizes = np.asarray(split.fold_sizes, dtype=float)
+            assert surfaces[alias].cells[-1].estimate == pytest.approx(folds.mean(), abs=1e-12)
+            assert abs(float(np.average(folds, weights=sizes)) - folds.mean()) > 1e-6
+
+    def test_the_natural_course_value_and_a_repeated_fit_are_refused(
+        self, name: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """R2 on the natural-course value, and R4 at repeats=2, before any draw."""
+        from tests.unit._confounding_support import forbid_draw_and_refit
+
+        result = _contrast_fit(name)
+        if name == "natural":
+            alias = "ey_natural_course[natural course]"
+            forbid_draw_and_refit(monkeypatch, result.estimator)
+            with pytest.raises(CapabilityError, match="it is E\\[Y\\]") as caught:
+                simulated_confounding(result, estimand=alias, grid=_GRID)
+            assert "ate_learned_rule[learned rule vs natural course]" in str(
+                caught.value.refusal.alternative
+            )
+            monkeypatch.undo()
+        repeated = _contrast_fit(name, 2)
+        forbid_draw_and_refit(monkeypatch, repeated.estimator)
+        with pytest.raises(CapabilityError) as caught:
+            simulated_confounding(repeated, estimand=support.NAME, grid=_GRID)
+        assert caught.value.refusal.reason is RefusalReason.DIFFERENT_ESTIMAND
+
+
+def _fold_values(fit: Any, result: Any, alias: str) -> np.ndarray:
+    """The per-fold values of an alias of ``fit`` in its refit ``result``.
+
+    Each fold's mean of the targeted value of the alias's column.
+
+    The rule's column reproduces the record's ``fold_estimates``; a known regime reads its
+    own column, the natural course the fold's outcome mean, and a contrast the difference.
+    """
+    targeted = result.fluctuations["regime"].targeted
+    values = np.asarray(result.nuisance.regimes.values, dtype=float)
+    predictions = np.column_stack([targeted.arms[level] for level in targeted.levels])
+    names = result.nuisance.regimes.names
+    folds = result.nuisance.folds
+
+    def column(name: str) -> np.ndarray:
+        if name == "natural course":
+            return np.asarray([result.data.outcome[test].mean() for _, test in folds])
+        mixture = np.einsum("ij,ij->i", values[:, :, names.index(name)], predictions)
+        return np.asarray([mixture[test].mean() for _, test in folds])
+
+    key = fit.parameter_keys[alias]
+    if key.reference is None:
+        return column(key.value)
+    return column(key.value) - column(key.reference)
+
+
+def test_the_comparators_are_frozen_and_a_changed_callback_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """W-f4r4 on the frozen replay: the replay's columns are the stored ones (R5)."""
+    from tests.unit._confounding_support import forbid_draw_and_refit
+
+    result = _contrast_fit("known")
+    alias = "ate_learned_rule[learned rule vs offer]"
+    replay, _, kind = request_module.validate_learned_rule_replay(
+        result, alias, result.parameter_keys[alias]
+    )
+    assert kind == "frozen" and isinstance(replay.learned_rule, FrozenLearnedRule)
+    stored = np.asarray(result.nuisance.regimes.values)
+    for index, frozen in enumerate(replay.interventions, start=1):
+        assert np.array_equal(frozen.density(result.data), stored[:, :, index])
+    state = {"moved": False}
+
+    def stateful(w: Any) -> np.ndarray:
+        p = (0.6 if state["moved"] else 0.5) * (np.asarray(w["W1"]) > 0)
+        return np.column_stack([1.0 - p, p])
+
+    plan = Stochastic(stateful, name="offer", density_kind="known")
+    study = CausalStudy(
+        support.law_frame(n=_N),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=support.COVARIATES),
+    )
+    fit = study.identify(LearnedRuleContrast(against=(plan,))).estimate(
+        outcome_learner=support.outcome_learner(),
+        treatment_learner=support.treatment_learner(),
+        n_folds=5,
+        cv_evaluation=True,
+        simultaneous=False,
+        random_state=0,
+    )
+    state["moved"] = True
+    forbid_draw_and_refit(monkeypatch, fit.estimator)
+    with pytest.raises(CapabilityError, match="disagree with a stored cross-fitting draw"):
+        simulated_confounding(fit, estimand=alias, grid=_GRID)
+
+
+def test_the_frozen_replay_at_a_level_beside_a_known_regime() -> None:
+    """X11 (j4a) beside Static(1): every alias is the frozen refit at the level."""
+    result = (
+        _level_study()
+        .identify(LearnedRuleContrast(against=(Static(1),), intermediate=1.0))
+        .estimate(**_level_options())
+    )
+    surfaces = {
+        alias: simulated_confounding(result, estimand=alias, grid=_LEVEL_GRID)
+        for alias in result.estimates
+    }
+    first = next(iter(surfaces.values()))
+    for index, cell in enumerate(first.cells[1:], start=1):
+        manual = _level_refit(result, level_table(result, first, cell))
+        for alias, surface in surfaces.items():
+            assert surface.rule_replay == "frozen"
+            assert surface.cells[index].estimate == pytest.approx(manual[alias].psi, abs=1e-12)

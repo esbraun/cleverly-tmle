@@ -2295,7 +2295,6 @@ risk-ratio tilt stop, and the rest follow the learned-rule stop, in the order of
 | `result_type` | an artifact that is not exactly a point-treatment `TMLEResult` |
 | `missing_estimator` | a result that stores no replay estimator |
 | `repeat_provenance` | a stored draw count, a `config.crossfit.repeats`, and a replay estimator `repeats` that disagree |
-| `learned_rule_comparators` | a learned-rule value fitted beside known regimes or a natural course in `interventions=`: the replay freezes the learned rules and would also rebuild each comparator's value and contrast, which no witness checks (roadmap X11) |
 | `binary_estimator` | a binary fit made by an estimator whose class does not declare `simulated_confounding_replay = True` (`TMLE`, `CTMLE`, `DRTMLE` and `AdaptiveIPTW` declare it) |
 | `continuous_estimator` | a continuous fit made by anything but exact ordinary `TMLE` |
 | `outcome_family` | an outcome family other than `gaussian` or `binomial` |

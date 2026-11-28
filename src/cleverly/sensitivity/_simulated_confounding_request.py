@@ -329,37 +329,6 @@ def _refuse_learned_rule_splits(result: Any) -> Refusal | None:
     return learned_rule_splits_refusal("simulated_confounding", result.n_repeats)
 
 
-def _refuse_learned_rule_comparators(result: Any) -> Refusal | None:
-    """Refuse a learned-rule value fitted beside comparators, which the replay does not build.
-
-    The replay freezes the learned rules, and a fit beside known regimes or a natural course
-    would also rebuild each comparator's value and its contrast with the frozen rules on the
-    perturbed table, which no witness checks.  The fit reports one parameter per comparator,
-    so the boundary is fit-wide.
-    """
-    estimator = getattr(result, "estimator", None)
-    if getattr(estimator, "learned_rule", None) is None or reports_optimal_rule(result):
-        return None
-    regimes = result.repeats[0].nuisance.regimes
-    beside = (regimes is not None and len(regimes.names) > 1) or (
-        getattr(estimator, "natural_course", None) is not None
-    )
-    if not beside:
-        return None
-    return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        "simulated_confounding of a learned-rule value beside comparators (known regimes or "
-        "a natural course in interventions=) is not built. The replay freezes the learned "
-        "rules and would also rebuild every comparator's value and its contrast on the "
-        "perturbed table, which no witness checks (X11 (n2) in docs/roadmap.md).",
-        alternative=(
-            "Replay the learned-rule value on a fit without comparators "
-            "(LearnedRuleValue()), and each known regime on a fit of TMLE(interventions=[...])."
-        ),
-        roadmap="X11",
-    )
-
-
 def _refuse_binary_estimator(result: Any) -> Refusal | None:
     """Refuse a binary fit whose estimator class declares no simulated-confounding replay.
 
@@ -500,7 +469,6 @@ _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("risk_ratio_tilt", _refuse_risk_ratio_tilt),
     ("missing_estimator", _refuse_missing_estimator),
     ("repeat_provenance", _refuse_repeat_provenance),
-    ("learned_rule_comparators", _refuse_learned_rule_comparators),
     ("learned_rule_splits", _refuse_learned_rule_splits),
     ("binary_estimator", _refuse_binary_estimator),
     ("continuous_estimator", _refuse_continuous_estimator),
