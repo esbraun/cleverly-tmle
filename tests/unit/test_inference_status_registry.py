@@ -350,6 +350,70 @@ class TestTheFewClusterThreshold:
         assert f"fewer than {threshold}" in _inference_status.T_REFERENCE_NOTE
         assert f"fewer than {threshold}" in _inference_status.NO_T_REFERENCE_BANDS
 
+    def test_every_arm_mean_floor_is_a_measured_count_of_a_measured_family(self) -> None:
+        """X54 (k): an arm-mean floor belongs to a floor family, lies in [its contrast floor,
+        40], and names the two arm means of a point family or the two static plans of an
+        ``LTMLE`` family on its measured design. The map ships empty until the arm-mean studies
+        register."""
+        status = _inference_status
+        assert frozenset({"ey0", "ey1"}) == status.ARM_MEAN_POINT_ESTIMANDS
+        for family, floor in status.ARM_MEAN_INTERVAL_FLOORS.items():
+            assert family in status.CLUSTER_INTERVAL_FLOORS
+            if family.startswith("ltmle"):
+                assert family in status.MEASURED_LONGITUDINAL_DESIGNS
+            assert status.CLUSTER_INTERVAL_FLOORS[family] <= floor
+            assert floor <= status.FEW_CLUSTER_THRESHOLD
+        for family in (*status.CLUSTER_INTERVAL_FLOORS, None):
+            for longitudinal in (False, True):
+                default = (
+                    status.DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
+                    if longitudinal
+                    else status.DEFAULT_POINT_INTERVAL_CLUSTERS
+                )
+                assert (
+                    status.estimand_interval_floor(
+                        family, arm_mean=False, longitudinal=longitudinal
+                    )
+                    == default
+                )
+                arm = status.estimand_interval_floor(
+                    family, arm_mean=True, longitudinal=longitudinal
+                )
+                assert arm == status.ARM_MEAN_INTERVAL_FLOORS.get(family, default)
+
+    def test_the_floor_table_prints_an_arm_mean_floor_off_the_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """X54 (k): the table adds a family's arm-mean floor after its contrast floor where it
+        differs from the default, below or above it, and prints nothing for an entry at the
+        default or a family without one. The shipped reason holds the shipped table."""
+        names = _inference_status.FLOOR_FAMILY_NAMES
+        shipped = _inference_status.floor_table()
+        assert ("for its two arm means" in shipped) == any(
+            floor
+            != (
+                _inference_status.DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
+                if family.startswith("ltmle")
+                else _inference_status.DEFAULT_POINT_INTERVAL_CLUSTERS
+            )
+            for family, floor in _inference_status.ARM_MEAN_INTERVAL_FLOORS.items()
+        )
+        monkeypatch.setattr(
+            _inference_status,
+            "ARM_MEAN_INTERVAL_FLOORS",
+            MappingProxyType({"tmle_in_sample": 8, "tmle_stacked": 10, "ltmle_in_sample": 25}),
+        )
+        table = _inference_status.floor_table()
+        floors = _inference_status.CLUSTER_INTERVAL_FLOORS
+        in_sample = f"{names['tmle_in_sample']} {floors['tmle_in_sample']}"
+        lowered = f"{names['tmle_in_sample']} 8 for its two arm means"
+        assert lowered in table and table.index(in_sample) < table.index(lowered)
+        assert f"{names['ltmle_in_sample']} 25 for its two arm means" in table
+        assert f"{names['tmle_stacked']} 10 for its two arm means" not in table
+        assert table.count("for its two arm means") == 2
+        assert table.endswith(shipped.split(", ")[-1])
+        assert f"The floors by fit are: {shipped}." in STATUS_RECORDS["few_cluster_plugin"].reason
+
     @pytest.mark.parametrize(
         ("literal", "constant"),
         [

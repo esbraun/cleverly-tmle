@@ -25,6 +25,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Callable
 from dataclasses import replace
+from types import MappingProxyType
 from typing import Any
 
 import numpy as np
@@ -527,6 +528,131 @@ class TestTheFloorHoldsForTheMeasuredContrast:
         )
         with pytest.raises(AssertionError):
             assert_floor_holds_for_the_contrast(fit_one_node(IN_SAMPLE_FLOOR))
+
+
+#: Arm-mean floors on either side of the default longitudinal floor of 20.
+LOWERED_ARM_FLOOR = 10
+RAISED_ARM_FLOOR = 25
+
+
+def ship_arm_floor(monkeypatch: pytest.MonkeyPatch, floor: int) -> None:
+    """Ship ``floor`` as in-sample LTMLE's arm-mean floor. ``estimand_interval_floor`` reads the
+    map from its module at each call, so the fit reads the patched entry."""
+    monkeypatch.setattr(
+        _inference_status,
+        "ARM_MEAN_INTERVAL_FLOORS",
+        MappingProxyType({"ltmle_in_sample": floor}),
+    )
+
+
+def fit_one_node_curve(k: int) -> Any:
+    """In-sample ``LTMLE`` on the measured one-node design, with the outcome read as a survival
+    curve of one horizon."""
+    frame = one_node_panel().assign(cluster=lambda f: labels(len(f), k))
+    return LTMLE({"never": 0, "always": 1}, reference="never", **learners()).fit(
+        frame, outcome=["Y"], treatment=["A"], baseline=["W1"], id="cluster"
+    )
+
+
+class TestTheArmMeansReadTheirOwnFloor:
+    """X54 part (k): on its measured design an ``LTMLE`` family's always-treat and never-treat
+    means read its arm-mean floor
+    (:data:`~cleverly._inference_status.ARM_MEAN_INTERVAL_FLOORS`), which ships empty until the
+    arm-mean studies register. Every other design, a curve, and every other estimate keep the
+    default of 20. The tests ship a floor in the map."""
+
+    def test_on_the_measured_design_the_means_read_the_arm_mean_floor(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ship_arm_floor(monkeypatch, LOWERED_ARM_FLOOR)
+        at = fit_one_node(LOWERED_ARM_FLOOR)
+        assert {at[name].inference for name in (*MEANS, CONTRAST)} == {"influence_curve"}
+        below = fit_one_node(LOWERED_ARM_FLOOR - 1)
+        assert {below[name].inference for name in MEANS} == {FEW_CLUSTER_ESTIMAND_STATUS}
+        assert below[CONTRAST].inference == "influence_curve"
+
+    def test_a_raised_floor_labels_the_means_at_the_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ship_arm_floor(monkeypatch, RAISED_ARM_FLOOR)
+        result = fit_one_node(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS)
+        assert {result[name].inference for name in MEANS} == {FEW_CLUSTER_ESTIMAND_STATUS}
+        assert result[CONTRAST].inference == "influence_curve"
+
+    def test_means_read_at_the_default_floor_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The mutation that ignores the map labels the means at their lowered floor."""
+        ship_arm_floor(monkeypatch, LOWERED_ARM_FLOOR)
+        monkeypatch.setattr(
+            longitudinal_estimator_module,
+            "estimand_interval_floor",
+            lambda family, *, arm_mean, longitudinal: DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
+        )
+        result = fit_one_node(LOWERED_ARM_FLOOR)
+        assert {result[name].inference for name in MEANS} == {FEW_CLUSTER_ESTIMAND_STATUS}
+
+    @pytest.mark.parametrize(
+        "fit",
+        [
+            pytest.param(fit_end_of_study, id="two nodes in sample"),
+            pytest.param(fit_one_node_curve, id="a curve on the measured design"),
+        ],
+    )
+    def test_an_unmeasured_design_or_a_curve_keeps_twenty(
+        self, fit: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ship_arm_floor(monkeypatch, LOWERED_ARM_FLOOR)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = fit(LOWERED_ARM_FLOOR)
+        assert result.data.n_clusters == LOWERED_ARM_FLOOR
+        if result.data.reports_curve:
+            # The panel is the measured design: only the curve keeps the means at 20.
+            assert longitudinal_estimator_module.measured_design(result.data, "ltmle_in_sample")
+        assert {e.inference for e in result.estimates.values()} == {FEW_CLUSTER_ESTIMAND_STATUS}
+
+    def test_a_clustered_policy_weighted_fit_is_refused(self) -> None:
+        """The policy-weighted variance has no cluster form, so a clustered fit refuses it
+        before any learner, and its estimates never read an arm-mean floor."""
+        with pytest.raises(CapabilityError, match="cluster-level policy-weighted variance"):
+            fit_one_node(LOWERED_ARM_FLOOR, variance="policy_weighted")
+
+    @staticmethod
+    def bootstrap_floors(result: Any) -> dict[str, tuple[bool, int | None]]:
+        return {
+            name: (estimate.bootstrap.below_floor, estimate.bootstrap.cluster_floor)
+            for name, estimate in result.estimates.items()
+        }
+
+    def test_a_bootstrap_summary_names_the_arm_mean_floor(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Review F5: a labelled mean's bootstrap stamps its own floor, not the default."""
+        ship_arm_floor(monkeypatch, RAISED_ARM_FLOOR)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = fit_one_node(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS, n_bootstrap=20)
+        assert self.bootstrap_floors(result) == {
+            **dict.fromkeys(MEANS, (True, RAISED_ARM_FLOOR)),
+            CONTRAST: (False, None),
+        }
+
+    def test_a_bootstrap_that_reads_the_default_floor_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mutation that drops the estimate's own floor stamps the default."""
+        ship_arm_floor(monkeypatch, RAISED_ARM_FLOOR)
+        attach = longitudinal_estimator_module.attach_bootstrap
+
+        def default_floor(*args: Any, **settings: Any) -> Any:
+            return attach(*args, **{**settings, "estimand_floors": None})
+
+        monkeypatch.setattr(longitudinal_estimator_module, "attach_bootstrap", default_floor)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = fit_one_node(DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS, n_bootstrap=20)
+        assert set(self.bootstrap_floors(result).values()) >= {
+            (True, DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS)
+        }
 
 
 class TestTheMutationsFailTheWitness:

@@ -30,6 +30,7 @@ passes.
 from __future__ import annotations
 
 import importlib
+from types import MappingProxyType
 from typing import Any
 
 import numpy as np
@@ -650,6 +651,139 @@ class TestTheFloorHoldsForTheMeasuredAte:
         monkeypatch.setattr(tmle_module, "MEASURED_POINT_ESTIMAND", "no estimand")
         with pytest.raises(AssertionError):
             assert_floor_holds_for_the_ate(fit(in_sample_floor_frame, **IN_SAMPLE))
+
+
+#: The estimates of an arm-mean fit: the measured ATE, both arm means, and the ATT, which no
+#: arm-mean study measures.
+ARM_ESTIMANDS = ("ate", "ey0", "ey1", "att")
+#: Arm-mean floors on either side of the default: one between the in-sample contrast floor
+#: (6) and 10, and one above 10, as a measured failure at the default would ship it.
+LOWERED_ARM_FLOOR = 8
+RAISED_ARM_FLOOR = 12
+
+
+def fit_arms(clusters: int, **settings: Any) -> Any:
+    """In-sample TMLE of :data:`ARM_ESTIMANDS` on ``clusters`` clusters of 40 rows."""
+    frame = make_clustered(n=clusters * 40, cluster_size=40, seed=7)[0]
+    assert sizes(frame) == (clusters, 40, 40)
+    return (
+        TMLE(**linear_in_sample(estimands=ARM_ESTIMANDS, **settings))
+        .fit(frame, outcome="Y", treatment="A", id="cluster")
+        .single()
+    )
+
+
+def ship_arm_floor(monkeypatch: pytest.MonkeyPatch, floor: int) -> None:
+    """Ship ``floor`` as in-sample TMLE's arm-mean floor. ``estimand_interval_floor`` reads the
+    map from its module at each call, so the fit reads the patched entry."""
+    monkeypatch.setattr(
+        _inference_status, "ARM_MEAN_INTERVAL_FLOORS", MappingProxyType({"tmle_in_sample": floor})
+    )
+
+
+def assert_arm_floor(result: Any, floor: int) -> None:
+    """Each estimate reads its own floor: the ATE the family's, the two arm means ``floor``, the
+    ATT the default. A labelled estimate shows its interval on the fit's t reference."""
+    clusters = result.data.n_clusters
+    own = {
+        "ate": CLUSTER_INTERVAL_FLOORS["tmle_in_sample"],
+        "ey0": floor,
+        "ey1": floor,
+        "att": DEFAULT_POINT_INTERVAL_CLUSTERS,
+    }
+    for name, estimand_floor in own.items():
+        estimate = result[name]
+        if clusters < estimand_floor:
+            assert estimate.inference == FEW_CLUSTER_ESTIMAND_STATUS, name
+            assert estimate.support.label == "experimental"
+            assert estimate.reference_df == clusters - 2
+        else:
+            assert estimate.inference == "influence_curve", name
+    assert result.inference_status == "influence_curve"
+
+
+class TestTheArmMeansReadTheirOwnFloor:
+    """X54 part (k): a family's arm means read its arm-mean floor
+    (:data:`~cleverly._inference_status.ARM_MEAN_INTERVAL_FLOORS`), which ships empty until
+    ``few-cluster-arm-means`` registers. Every other estimate but the measured ATE keeps the
+    default floor. The tests ship a floor in the map."""
+
+    def test_one_below_a_lowered_floor_the_arm_means_are_labelled(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ship_arm_floor(monkeypatch, LOWERED_ARM_FLOOR)
+        result = fit_arms(LOWERED_ARM_FLOOR - 1)
+        assert result["ey1"].inference == FEW_CLUSTER_ESTIMAND_STATUS
+        assert result["ate"].inference == "influence_curve"
+        assert_arm_floor(result, LOWERED_ARM_FLOOR)
+
+    def test_at_a_lowered_floor_the_arm_means_clear_and_the_att_keeps_the_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ship_arm_floor(monkeypatch, LOWERED_ARM_FLOOR)
+        result = fit_arms(LOWERED_ARM_FLOOR)
+        assert {result[name].inference for name in ("ate", "ey0", "ey1")} == {"influence_curve"}
+        assert result["att"].inference == FEW_CLUSTER_ESTIMAND_STATUS
+        assert_arm_floor(result, LOWERED_ARM_FLOOR)
+
+    def test_a_raised_floor_labels_the_arm_means_at_the_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ship_arm_floor(monkeypatch, RAISED_ARM_FLOOR)
+        result = fit_arms(DEFAULT_POINT_INTERVAL_CLUSTERS)
+        assert {result[name].inference for name in ("ey0", "ey1")} == {FEW_CLUSTER_ESTIMAND_STATUS}
+        assert {result[name].inference for name in ("ate", "att")} == {"influence_curve"}
+        assert_arm_floor(result, RAISED_ARM_FLOOR)
+
+    def test_arm_means_read_at_the_contrast_floor_fail(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mutation that reads the family's contrast floor for an arm mean clears it one
+        below its own floor."""
+        ship_arm_floor(monkeypatch, LOWERED_ARM_FLOOR)
+        monkeypatch.setattr(
+            tmle_module,
+            "estimand_interval_floor",
+            lambda family, *, arm_mean, longitudinal: (
+                CLUSTER_INTERVAL_FLOORS[family] if arm_mean else DEFAULT_POINT_INTERVAL_CLUSTERS
+            ),
+        )
+        with pytest.raises(AssertionError):
+            assert_arm_floor(fit_arms(LOWERED_ARM_FLOOR - 1), LOWERED_ARM_FLOOR)
+
+    @staticmethod
+    def bootstrap_floors(result: Any) -> dict[str, tuple[bool, int | None]]:
+        return {
+            name: (estimate.bootstrap.below_floor, estimate.bootstrap.cluster_floor)
+            for name, estimate in result.estimates.items()
+        }
+
+    def test_a_bootstrap_summary_names_the_arm_mean_floor(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Review F5: a labelled arm mean's bootstrap stamps its own floor, not the default."""
+        ship_arm_floor(monkeypatch, RAISED_ARM_FLOOR)
+        result = fit_arms(DEFAULT_POINT_INTERVAL_CLUSTERS, n_bootstrap=20)
+        assert self.bootstrap_floors(result) == {
+            "ate": (False, None),
+            "att": (False, None),
+            "ey0": (True, RAISED_ARM_FLOOR),
+            "ey1": (True, RAISED_ARM_FLOOR),
+        }
+
+    def test_a_bootstrap_that_reads_the_default_floor_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The mutation that drops the estimate's own floor stamps the default."""
+        ship_arm_floor(monkeypatch, RAISED_ARM_FLOOR)
+        attach = tmle_module.attach_bootstrap
+
+        def default_floor(*args: Any, **settings: Any) -> Any:
+            return attach(*args, **{**settings, "estimand_floors": None})
+
+        monkeypatch.setattr(tmle_module, "attach_bootstrap", default_floor)
+        result = fit_arms(DEFAULT_POINT_INTERVAL_CLUSTERS, n_bootstrap=20)
+        assert self.bootstrap_floors(result)["ey1"] == (True, DEFAULT_POINT_INTERVAL_CLUSTERS)
 
 
 class TestTheMarginalBoundsReadTheEstimandStatus:

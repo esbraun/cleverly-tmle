@@ -11,8 +11,8 @@ No other implementation computes these intervals at these counts, so the study h
 The publication policy is `reporting`. Every property cell reads one contrast: the ATE for the point
 fits, and always against never for `LTMLE`. `CLUSTER_INTERVAL_FLOORS` ships each measured floor for
 that contrast alone, and every other estimate keeps 10 or 20. 74 property cells and one primary row
-are red. The [red-cell ledger](red-cells.md) holds 73 cells and the primary row under
-`X54-cluster-floor`, and one cell under `X54-stacked-d5-redeclaration`.
+are red. The [red-cell ledger](red-cells.md) holds all 74 cells and the primary row under
+`X54-cluster-floor`, one of them as `superseded (study defect)`.
 
 | part | what it is | status |
 | --- | --- | --- |
@@ -1553,7 +1553,7 @@ which every count of its ladder passes.
 | family | route | floor of the measured contrast | red cells, owner and reading |
 | --- | --- | --- | --- |
 | in-sample `TMLE` | lowered | 6 | `t_reference` at 4 and 5 on `equal10`, both mechanisms: `X54-cluster-floor`, `below floor (finite-sample)` |
-| stacked `TMLE` | redeclaration | 10 | `t_reference` at 4, and to 6 in the five-covariate estimated configuration; `iid_t_control` to 6, and to 9 in that configuration (`control power`); that configuration's control at 10: `X54-stacked-d5-redeclaration` |
+| stacked `TMLE` | redeclaration | 10 | `t_reference` at 4, and to 6 in the five-covariate estimated configuration; `iid_t_control` to 6, and to 9 in that configuration (`control power`); that configuration's control at 10: `X54-cluster-floor`, `superseded (study defect)` |
 | fold-evaluated `TMLE` | lowered | 8 | `t_reference` at 4 and 5 (one `below floor (availability)`); `iid_t_control` to 7 (`control power`) |
 | declared-mechanism `DRTMLE` | lowered | 8 | `t_reference` at 4 on `unequal_informative`; `iid_t_control` to 7 (`control power`) |
 | in-sample `LTMLE` | lowered | 6 | `t_reference` at 4 and 5 on `equal10` and 4 on `unequal_informative` |
@@ -1626,7 +1626,8 @@ The study is registered under `reporting`. The red-cell readings and every famil
 declared before the run in `tests/canonical/few_cluster_floor_tmle/regenerate.py`. Each red row
 and its owner is computed from the committed results by `red_owners` and `primary_owners` in
 `tests/studies/few_cluster_floor.py`. A red that no reading holds fails the design test, unless
-`REDECLARED_REDS` names it.
+`SUPERSEDED_REDS` names it: the five-covariate estimated control at 10 clusters, which
+`few-cluster-floor-stacked` re-measures.
 
 ## Measured values
 

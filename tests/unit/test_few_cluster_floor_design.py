@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from cleverly import _inference_status
 from cleverly._inference_status import CLUSTER_INTERVAL_FLOORS, FLOOR_FAMILY_NAMES
 from cleverly.exceptions import CapabilityError, DataError
 from tests.canonical import property_differential as differential
@@ -836,6 +837,15 @@ def _summary_row(cell: str, passed: bool, **values) -> dict:
     return {**row, **values}
 
 
+def _control_row(cell: str, passed: bool, **values) -> dict:
+    """A control row whose published clauses give ``passed``: a red one fails clause 1 alone."""
+    clauses = {
+        "paired_se_ratio_ci_upper": 0.70 if passed else 0.85,
+        "paired_positive_se_ratio_ci_upper": 1.10,
+    }
+    return _summary_row(cell, passed, **{**clauses, **values})
+
+
 def _family_cells(red: dict[int, str] | None = None, ladder=(4, 5, 6, 10, 15, 20)):
     """Two configurations, one law; ``red`` maps a count to the arm that fails there."""
     red = red or {}
@@ -844,7 +854,7 @@ def _family_cells(red: dict[int, str] | None = None, ladder=(4, 5, 6, 10, 15, 20
         for count in ladder:
             arm = red.get(count) if configuration == "x_known" else None
             positive = _summary_row(f"{configuration}__l__j{count}__t_reference", arm != "positive")
-            control = _summary_row(f"{configuration}__l__j{count}__iid_t_control", arm != "control")
+            control = _control_row(f"{configuration}__l__j{count}__iid_t_control", arm != "control")
             out[(configuration, "l", count)] = (positive, control)
     return out
 
@@ -1011,6 +1021,313 @@ def test_below_floor_readings():
     assert floor.red_reading({**available, "replicates": 4_000.0}) == floor.FINITE_SAMPLE_READING
     shifted = {**available, "shown_ci_upper": 0.94}
     assert floor.red_reading(shifted) == floor.FINITE_SAMPLE_READING
+
+
+# ------------------------------------------- X54 (j), (k): redeclared routes and arm-mean floors
+
+#: A clause-1 failure alone, a clause-2 failure, and fewer than two shown draws: the control
+#: columns of each kind of red (``floor.control_clauses``).
+CLAUSE_ONE_ONLY = {"paired_se_ratio_ci_upper": 0.85}
+CLAUSE_TWO = {"paired_positive_se_ratio_ci_upper": 1.25}
+UNSHOWN = {"paired_se_ratio_ci_upper": float("nan")}
+
+
+def test_a_redeclaring_study_withdraws_support_for_an_uncompared_red():
+    """Review m2: in a redeclaring study (``redeclaration=False``) a red at or above the anchor
+    with no committed counterpart reads ``support withdrawn`` with the floor at the anchor, and
+    nobody holds it. The mutation that leaves the redeclaration branch on reads a further
+    redeclaration."""
+    cells = _family_cells({15: "positive", 4: "positive"})
+    name = f"{floor.FAMILY}/x_known__l__j15__t_reference"
+    route = floor.declared_route("x", cells, anchor=10, counterparts={}, redeclaration=False)
+    assert (route.floor, route.route) == (10, f"{floor.SUPPORT_WITHDRAWN}: 15")
+    assert route.defect_suspects == (name,)
+    mutated = floor.declared_route("x", cells, anchor=10, counterparts={})
+    assert mutated.route == f"{floor.REDECLARATION}: 15" != route.route
+    # A compared red keeps the defect-suspect route in either mode.
+    agrees = {"x_known__l__j15__t_reference": floor.Counterpart("committed", 3_800, 4_000)}
+    compared = floor.declared_route("x", cells, anchor=10, counterparts=agrees, redeclaration=False)
+    assert compared.route == "defect suspect: 15"
+    # With no red at or above the anchor the mode changes nothing.
+    below = _family_cells({4: "positive"})
+    assert floor.declared_route("x", below, anchor=10, redeclaration=False) == (
+        floor.declared_route("x", below, anchor=10)
+    )
+
+
+def _two_law_cells(controls: dict[tuple[str, int], dict], ladder=(4, 5, 6, 10, 15, 20)):
+    """One configuration on an ATE law and an arm-mean law; ``controls`` overrides the control
+    columns of ``(law, count)``, its ``passed`` read off the registered rule."""
+    out = {}
+    for law in ("ate_law", "arm_law"):
+        for count in ladder:
+            stem = f"x_known__{law}__j{count}"
+            values = {
+                "paired_se_ratio_ci_upper": 0.70,
+                "paired_positive_se_ratio_ci_upper": 1.10,
+                **controls.get((law, count), {}),
+            }
+            shown, one, two = floor.control_clauses(values)
+            control = _summary_row(f"{stem}__iid_t_control", shown and one and two, **values)
+            out[("x_known", law, count)] = (_summary_row(f"{stem}__t_reference", True), control)
+    return out
+
+
+def test_the_declared_route_gates_clause_one_by_law():
+    """Review 3 m1: with ``clause_one_laws`` a control's clause 1 gates on those laws only, and
+    its clause 2 and the two-shown-draws condition on every law. A clause-1-only red on another
+    law passes its cell and reads ``control unpowered by law`` at every count."""
+    laws = {"arm_law"}
+    cells = _two_law_cells({("ate_law", 5): CLAUSE_ONE_ONLY, ("ate_law", 15): CLAUSE_ONE_ONLY})
+    route = floor.declared_route("x", cells, anchor=10, clause_one_laws=laws)
+    assert (route.floor, route.route) == (4, floor.LOWERED)
+    for count in (5, 15):
+        name = f"{floor.FAMILY}/x_known__ate_law__j{count}__iid_t_control"
+        assert route.owners[name] == (floor.RED_OWNER, floor.UNPOWERED_READING)
+    # The mutation that gates clause 1 on the ATE law too (the registered default).
+    gated = floor.declared_route("x", cells, anchor=10)
+    assert gated.route == f"{floor.REDECLARATION}: 15" and gated.floor == 10
+    # On the arm-mean law clause 1 still gates.
+    arm = _two_law_cells({("arm_law", 5): CLAUSE_ONE_ONLY})
+    assert floor.declared_route("x", arm, anchor=10, clause_one_laws=laws).floor == 6
+
+
+@pytest.mark.parametrize("failure", [CLAUSE_TWO, UNSHOWN], ids=["clause 2", "unshown"])
+def test_clause_two_and_the_shown_draws_gate_on_every_law(failure, monkeypatch):
+    """Review 3 m1: on a law outside ``clause_one_laws`` a clause-2 red, or a control with
+    fewer than two shown draws, still turns its count red, in both routing functions."""
+    laws = {"arm_law"}
+    cells = _two_law_cells({("ate_law", 5): failure})
+    name = f"{floor.FAMILY}/x_known__ate_law__j5__iid_t_control"
+    route = floor.declared_route("x", cells, anchor=10, clause_one_laws=laws)
+    assert route.floor == 6 and route.owners[name] == (floor.RED_OWNER, floor.CONTROL_READING)
+    arm_cells = {
+        (configuration, law, "ey1", count): pair
+        for (configuration, law, count), pair in cells.items()
+    }
+    settings = {
+        "family": "x",
+        "anchor": 10,
+        "contrast_floor": 4,
+        "ladder": (4, 5, 6, 10, 15, 20),
+        "owner": "o",
+        "prefix": "p",
+        "clause_one_laws": laws,
+    }
+    assert floor.arm_mean_floor(arm_cells, **settings).floor == 6
+    if failure is CLAUSE_TWO:
+        # The mutation that drops clause 2 passes the count.
+        monkeypatch.setattr(floor, "CLAUSE_TWO_CEILING", float("inf"))
+        assert floor.declared_route("x", cells, anchor=10, clause_one_laws=laws).floor == 4
+        assert floor.arm_mean_floor(arm_cells, **settings).floor == 4
+
+
+def test_a_control_row_that_contradicts_its_clauses_raises():
+    """The recomputed verdict reads the registered rule wherever clause 1 gates: a row whose
+    ``passed`` disagrees with its own columns is refused, not silently re-read."""
+    control = _summary_row("c", True, **CLAUSE_ONE_ONLY, paired_positive_se_ratio_ci_upper=1.1)
+    with pytest.raises(ValueError, match="its clauses read False"):
+        floor.control_verdict(control, "l", None)
+    assert floor.control_verdict(control | {"passed": False}, "l", None) is False
+    assert floor.control_verdict(control | {"passed": False}, "l", {"other"}) is True
+
+
+@pytest.mark.parametrize(("study", "properties"), STUDIES)
+def test_the_recomputed_control_verdict_is_the_committed_one(study, properties):
+    """Every committed control row's verdict, recomputed from its published clauses with clause
+    1 on every law, is the row's ``passed``: the clause split reads the registered rule.
+    Clause 2's ceiling is the study's SE screen."""
+    del properties
+    assert floor.CLAUSE_TWO_CEILING == study.STUDY.margins.se_ratio_sanity[1] == 1.20
+    path = _committed(study, "properties.csv")
+    if path is None:
+        return
+    summary = pd.read_csv(path, keep_default_na=False, na_values=[""])
+    controls = summary.loc[(summary["property"] == floor.FAMILY) & (summary["role"] == "control")]
+    assert len(controls) > 0
+    verdicts = [
+        floor.control_verdict(row, floor.parse(str(row["cell"]))[1], None)
+        for _, row in controls.iterrows()
+    ]
+    assert verdicts == controls["passed"].astype(bool).tolist()
+
+
+#: The arm-mean ladder of the in-sample families (X54 plan rev 2.4, 5.2).
+ARM_LADDER = (6, 7, 8, 9, 10, 15, 20, 30, 39)
+
+
+def _arm_cells(red: dict[tuple[str, int], str], ladder=ARM_LADDER, controls=None):
+    """Two configurations on two laws, both arm means; ``red`` maps ``(estimand, count)`` to the
+    arm that fails on the known configuration's arm-mean law, and ``controls`` overrides the
+    control columns of ``(law, estimand, count)``."""
+    controls = controls or {}
+    out = {}
+    for configuration in ("x_known", "x_estimated"):
+        for law in ("ate_law", "arm_law"):
+            for estimand in ("ey0", "ey1"):
+                for count in ladder:
+                    arm = (
+                        red.get((estimand, count))
+                        if (configuration, law) == ("x_known", "arm_law")
+                        else None
+                    )
+                    stem = f"{configuration}__{law}__j{count}__{estimand}"
+                    values = {
+                        "paired_se_ratio_ci_upper": 0.85 if arm == "control" else 0.70,
+                        "paired_positive_se_ratio_ci_upper": 1.10,
+                        **controls.get((law, estimand, count), {}),
+                    }
+                    shown, one, two = floor.control_clauses(values)
+                    control = _summary_row(
+                        f"{stem}__iid_t_control", shown and one and two, **values
+                    )
+                    positive = _summary_row(f"{stem}__t_reference", arm != "positive")
+                    out[(configuration, law, estimand, count)] = (positive, control)
+    return out
+
+
+ARM = {
+    "family": "tmle_in_sample",
+    "anchor": 10,
+    "contrast_floor": 6,
+    "ladder": ARM_LADDER,
+    "owner": "X54-estimand-floor",
+    "prefix": "arm_family",
+    "clause_one_laws": ("arm_law",),
+}
+
+
+def _capped(cells, **settings) -> int:
+    """The anchor-capped mutation: :func:`floor.family_floor` on the same per-count passes."""
+    passes: dict[int, bool] = {}
+    for (_, law, _, count), (positive, control) in cells.items():
+        ok = bool(positive["passed"]) and floor.control_verdict(
+            control, law, settings["clause_one_laws"]
+        )
+        passes[count] = passes.get(count, True) and ok
+    return floor.family_floor(passes, anchor=settings["anchor"])
+
+
+@pytest.mark.parametrize(
+    ("red", "contrast_floor", "expected", "route"),
+    [
+        ({("ey1", 10): "positive"}, 6, 15, "raised: 15"),
+        ({("ey1", 10): "positive", ("ey0", 20): "control"}, 6, 30, "raised: 30"),
+        ({("ey1", 39): "positive"}, 6, 40, "raised: 40"),
+        ({("ey1", 6): "positive", ("ey0", 7): "control"}, 6, 8, "lowered: 8"),
+        ({("ey1", 6): "positive", ("ey0", 7): "control"}, 9, 9, "lowered: 9"),
+        ({("ey0", 10): "positive"}, 6, 15, "raised: 15"),
+        ({("ey1", 9): "control"}, 6, 10, "kept"),
+        ({}, 6, 6, "lowered: 6"),
+    ],
+)
+def test_the_arm_mean_floor_is_not_capped_at_the_anchor(red, contrast_floor, expected, route):
+    """Review 3 major 1, review 5 m2: :math:`F_m` is the smallest ladder count, at least the
+    contrast floor, from which every count passes for both arm means; a red at or above the
+    anchor raises it, and a red at 39 gives 40. A red of one arm mean alone moves it. The
+    mutation that restores the anchor cap reads the anchor whenever the floor is raised."""
+    cells = _arm_cells(red)
+    settings = {**ARM, "contrast_floor": contrast_floor}
+    result = floor.arm_mean_floor(cells, **settings)
+    assert (result.family, result.floor, result.route) == ("tmle_in_sample", expected, route)
+    if expected > ARM["anchor"]:
+        assert _capped(cells, **settings) == ARM["anchor"] != result.floor
+
+
+def test_the_arm_mean_floor_holds_every_red_below_it():
+    """Review 4 major 1: with reds at 10 and 20 and :math:`F_m = 30` both rows are owned by the
+    study's owner under their readings, named under the study's prefix (review 5 m3). The
+    mutation that holds reds only below the anchor leaves the 20 row unowned, which
+    :func:`floor.red_owners` refuses."""
+    cells = _arm_cells({("ey1", 10): "positive", ("ey0", 20): "control"})
+    route = floor.arm_mean_floor(cells, **ARM)
+    positive = "arm_family/x_known__arm_law__j10__ey1__t_reference"
+    control = "arm_family/x_known__arm_law__j20__ey0__iid_t_control"
+    assert route.owners == {
+        positive: ("X54-estimand-floor", floor.FINITE_SAMPLE_READING),
+        control: ("X54-estimand-floor", floor.CONTROL_READING),
+    }
+    assert floor.red_owners("s", [route], {}, superseded={}) == route.owners
+    below_anchor = dataclasses.replace(
+        route,
+        owners={
+            name: owner if int(name.split("__j")[1].split("__")[0]) < ARM["anchor"] else None
+            for name, owner in route.owners.items()
+        },
+    )
+    with pytest.raises(ValueError, match="unowned reds"):
+        floor.red_owners("s", [below_anchor], {}, superseded={})
+
+
+def test_a_clause_one_red_on_an_ate_law_is_unpowered_at_every_count():
+    """Review 3 m2, review 5 m1: a control at 30 failing only clause 1 on an ATE law is held as
+    ``control unpowered by law`` and moves no floor. The mutation that gates clause 1 there
+    raises the floor to 39. Without the unpowered branch the count rule would leave the 30
+    row unowned."""
+    controls = {("ate_law", "ey0", 30): CLAUSE_ONE_ONLY, ("ate_law", "ey0", 7): CLAUSE_ONE_ONLY}
+    cells = _arm_cells({}, controls=controls)
+    route = floor.arm_mean_floor(cells, **ARM)
+    assert (route.floor, route.route) == (6, "lowered: 6")
+    for count in (7, 30):
+        name = f"arm_family/x_known__ate_law__j{count}__ey0__iid_t_control"
+        assert route.owners[name] == ("X54-estimand-floor", floor.UNPOWERED_READING)
+    # The count rule alone would leave the 30 row unowned: it sits above the floor.
+    assert route.floor <= 30
+    gated = floor.arm_mean_floor(cells, **{**ARM, "clause_one_laws": None})
+    assert (gated.floor, gated.route) == (39, "raised: 39")
+    assert set(gated.owners.values()) == {("X54-estimand-floor", floor.CONTROL_READING)}
+
+
+def test_the_arm_mean_floor_refuses_an_incomplete_grid():
+    """A missing cell must not read as a pass: every arm at every ladder count, and no count off
+    the ladder."""
+    cells = _arm_cells({})
+    missing = {
+        key: value for key, value in cells.items() if key != ("x_known", "arm_law", "ey1", 15)
+    }
+    with pytest.raises(ValueError, match="cells missing"):
+        floor.arm_mean_floor(missing, **ARM)
+    with pytest.raises(ValueError, match="off the ladder"):
+        floor.arm_mean_floor(cells, **{**ARM, "ladder": ARM_LADDER[:-1]})
+    with pytest.raises(ValueError, match="contrast floor"):
+        floor.arm_mean_floor(cells, **{**ARM, "contrast_floor": 40})
+
+
+def test_the_estimand_floor_reads_the_arm_mean_map(monkeypatch):
+    """X54 plan rev 2.4, 3.1: ``estimand_floor`` reads an arm mean's floor from
+    ``ARM_MEAN_INTERVAL_FLOORS`` and every other estimate's default. A primary red arm mean at
+    20 is held below an arm-mean floor of 25, and one at 10 is unowned at or above a floor of 8.
+    The S-a primary publishes both ``LTMLE`` arm means."""
+    target = study_a.LTMLE_TARGET
+    assert floor.estimand_floor("ltmle_in_sample", "ey_regimen[never]", target) == 20
+    monkeypatch.setattr(
+        _inference_status,
+        "ARM_MEAN_INTERVAL_FLOORS",
+        types.MappingProxyType({"ltmle_in_sample": 25, "tmle_in_sample": 8}),
+    )
+    read = floor.estimand_floor
+    for arm in floor.LTMLE_ARM_MEANS:
+        assert read("ltmle_in_sample", arm, target) == 25
+        assert read("ltmle_cross_fitted", arm, target) == 20
+    assert read("ltmle_in_sample", "ey_regimen[once]", target) == 20
+    assert read("ltmle_in_sample", target, target) == CLUSTER_INTERVAL_FLOORS["ltmle_in_sample"]
+    for arm in ("ey0", "ey1"):
+        assert read("tmle_in_sample", arm, "ate") == 8
+        assert read("tmle_stacked", arm, "ate") == 10
+    assert read("tmle_in_sample", "att", "ate") == 10
+    settings = {"family": "ltmle_in_sample", "measured": target}
+    held = floor.primary_owners(_red("ey_regimen[never]"), clusters=20, **settings)
+    assert held == {"cleverly/s/ey_regimen[never]": (floor.RED_OWNER, floor.FINITE_SAMPLE_READING)}
+    monkeypatch.setattr(
+        _inference_status,
+        "ARM_MEAN_INTERVAL_FLOORS",
+        types.MappingProxyType({"ltmle_in_sample": 8}),
+    )
+    unowned = floor.primary_owners(_red("ey_regimen[never]"), clusters=10, **settings)
+    assert unowned == {"cleverly/s/ey_regimen[never]": None}
+    path = _committed(study_a, "performance-tests.csv")
+    if path is not None:
+        assert set(pd.read_csv(path)["estimand"]) >= floor.LTMLE_ARM_MEANS
 
 
 def _decision(winner: str, jackknife: int | None = 10) -> floor.Decision:
@@ -1209,12 +1526,16 @@ def declared_outcome(
         "ltmle_cross_fitted": properties_b.route(summary_b),
     }
     # A d5 red at or above the anchor has no committed counterpart: it sends tmle_stacked, whose
-    # configurations the d5 fits are, to a redeclaration with its floor at the anchor.
+    # configurations the d5 fits are, to a redeclaration with its floor at the anchor, and
+    # few-cluster-floor-stacked redeclares the family (X54 plan rev 2.4, 3.2): the stacked
+    # route names that study, whose own post-run test compares the shipped floor.
     reported = properties_a.reported_route(summary_a)
     if reported.route.startswith(floor.REDECLARATION):
         stacked = routes["tmle_stacked"]
         routes["tmle_stacked"] = dataclasses.replace(
-            stacked, floor=study_a.ANCHORS["tmle_stacked"], route=f"{reported.route} (d5)"
+            stacked,
+            floor=study_a.ANCHORS["tmle_stacked"],
+            route=f"{floor.REDECLARED}: {floor.STACKED_REDECLARATION}",
         )
     decisions = {
         **properties_a.decisions(summary_a, rows_a),
@@ -1239,14 +1560,19 @@ def test_the_committed_runs_reproduce_the_shipped_floors():
     )
     outcomes = declared_outcome(summary_a, rows_a, summary_b, rows_b)
     for family, outcome in outcomes.items():
-        assert CLUSTER_INTERVAL_FLOORS[outcome.family] == outcome.floor
+        # A redeclared family's shipped floor is its redeclaring study's outcome.
+        if not outcome.route.startswith(floor.REDECLARED):
+            assert CLUSTER_INTERVAL_FLOORS[outcome.family] == outcome.floor
         assert shipped_status(family, outcome.jackknife) == floor.SHIPPED_JACKKNIFE.get(
             family, "not compared"
         )
     # P2: one named departure, the stacked deferral; P3: stacked's part (c) result stands.
     assert set(floor.JACKKNIFE_DEPARTURES) == {"tmle_stacked"}
     assert outcomes["tmle_stacked"].jackknife == "option"
-    assert outcomes["tmle_stacked"].route.startswith(floor.REDECLARATION)
+    assert outcomes["tmle_stacked"].route == (f"{floor.REDECLARED}: {floor.STACKED_REDECLARATION}")
+    assert [o.family for o in outcomes.values() if o.route.startswith(floor.REDECLARED)] == [
+        "tmle_stacked"
+    ]
     assert not any(outcome.wang_adopted for outcome in outcomes.values())
 
 
@@ -1268,8 +1594,9 @@ def test_a_departure_is_the_only_way_a_shipped_status_differs():
 
 
 def test_every_committed_red_has_an_owner_and_the_ledger_claims_it():
-    """P1: every red of the committed summaries is held, the one unowned red by the
-    redeclaration owner, and ``red_cells.CLAIMS`` lists exactly that map."""
+    """P1: every red of the committed summaries is held, the one unowned red under the
+    superseded reading (X54 plan rev 2.4, 5.5), and ``red_cells.CLAIMS`` lists exactly that
+    map."""
     summaries = {
         study.STUDY.slug: pd.read_csv(
             study.STUDY.artifacts / "properties.csv", keep_default_na=False, na_values=[""]
@@ -1292,14 +1619,17 @@ def test_every_committed_red_has_an_owner_and_the_ledger_claims_it():
     assert claimed == {
         (slug, name): owner for slug, rows in owners.items() for name, (owner, _) in rows.items()
     }
-    redeclared = [
-        name
+    superseded = {
+        name: owner
         for rows in owners.values()
-        for name, (owner, _) in rows.items()
-        if owner == floor.REDECLARATION_OWNER
-    ]
-    assert redeclared == sorted(floor.REDECLARED_REDS["few-cluster-floor-tmle"])
-    assert floor.REDECLARATION_OWNER in red_cells.owner_ids()
+        for name, owner in rows.items()
+        if owner[1] == floor.SUPERSEDED_READING
+    }
+    assert superseded == dict.fromkeys(
+        floor.SUPERSEDED_REDS[study_a.STUDY.slug], (floor.RED_OWNER, floor.SUPERSEDED_READING)
+    )
+    assert set(floor.SUPERSEDED_REDS) == {study_a.STUDY.slug}
+    assert set(floor.SUPERSEDED_REDS[study_a.STUDY.slug].values()) == {floor.STACKED_REDECLARATION}
     assert not floor.NO_DEFECT_DIAGNOSES
 
 
@@ -1395,22 +1725,25 @@ def committed_owners(summaries):
 
 
 def test_any_other_unowned_red_fails_the_owner_map():
-    """P1 mutation: an unowned red outside ``REDECLARED_REDS`` raises, and so does a named red
+    """P1 mutation: an unowned red outside ``SUPERSEDED_REDS`` raises, and so does a named red
     that a route holds."""
     held = floor.Route("f", 6, floor.LOWERED, {"a": (floor.RED_OWNER, floor.CONTROL_READING)})
     loose = floor.Route("g", 10, f"{floor.REDECLARATION}: 10", {"b": None})
     with pytest.raises(ValueError, match="unowned reds"):
-        floor.red_owners("s", [held, loose], {}, redeclared={})
+        floor.red_owners("s", [held, loose], {}, superseded={})
     with pytest.raises(ValueError, match="not unowned"):
-        floor.red_owners("s", [held], {}, redeclared={"s": frozenset({"a"})})
-    owners = floor.red_owners("s", [held, loose], {}, redeclared={"s": frozenset({"b"})})
-    assert owners["b"] == (floor.REDECLARATION_OWNER, floor.REDECLARATION_READING)
+        floor.red_owners("s", [held], {}, superseded={"s": {"a": "t"}})
+    owners = floor.red_owners("s", [held, loose], {}, superseded={"s": {"b": "t"}})
+    assert owners["b"] == (floor.RED_OWNER, floor.SUPERSEDED_READING)
+    # The shipped map names exactly the one S-a cell: any other study's unowned red raises.
+    with pytest.raises(ValueError, match="unowned reds"):
+        floor.red_owners("few-cluster-floor-stacked", [loose], {})
 
 
 def test_a_d5_redeclaration_sends_the_stacked_family_to_a_redeclaration(monkeypatch):
     """A d5 red at or above the anchor has no counterpart: ``declared_outcome`` gives
-    ``tmle_stacked`` the redeclaration route with its floor at the anchor. The mutation that
-    ignores the reported route ships the stacked floor the floor cells read."""
+    ``tmle_stacked`` the route of its redeclaring study with its floor at the anchor. The
+    mutation that ignores the reported route ships the stacked floor the floor cells read."""
     lowered = {
         family: floor.Route(family, 4, floor.LOWERED, {})
         for family in (*study_a.ANCHORS, study_b.FIT)
@@ -1433,5 +1766,5 @@ def test_a_d5_redeclaration_sends_the_stacked_family_to_a_redeclaration(monkeypa
     outcomes = declared_outcome(None, None, None, None)
     stacked = outcomes["tmle_stacked"]
     assert stacked.floor == study_a.ANCHORS["tmle_stacked"]
-    assert stacked.route == f"{floor.REDECLARATION}: 15 (d5)"
+    assert stacked.route == f"{floor.REDECLARED}: {floor.STACKED_REDECLARATION}"
     assert outcomes["tmle_in_sample"].floor == 4

@@ -627,8 +627,11 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     # ``few-cluster-floor-tmle`` below its family's floor, under the reading ``declared_route``
     # or ``candidate_owners`` returns from the committed summary (``few_cluster_floor.red_owners``;
     # the design test recomputes it), and the primary's arm-mean truth row below the arm-mean
-    # floor of 20 (``few_cluster_floor.primary_owners``; post-run ruling 2, R3).
-    # ``few-cluster-floor-cross-fitted-ltmle`` has no red row.
+    # floor of 20 (``few_cluster_floor.primary_owners``; post-run ruling 2, R3), and the one red
+    # no declared reading holds, the five-covariate estimated stacked IID control at 10 clusters,
+    # under ``superseded (study defect)``: few-cluster-floor-stacked re-measures the family
+    # (``few_cluster_floor.SUPERSEDED_REDS``). ``few-cluster-floor-cross-fitted-ltmle`` has no
+    # red row.
     "X54-cluster-floor": _keys(
         "few-cluster-floor-tmle",
         "truth",
@@ -701,6 +704,7 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j7__iid_t_control",
         "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j8__iid_t_control",
         "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j9__iid_t_control",
+        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j10__iid_t_control",
         "few_cluster_reference/tmle_stacked_estimated__equal10__j4__iid_t_control",
         "few_cluster_reference/tmle_stacked_estimated__equal10__j5__iid_t_control",
         "few_cluster_reference/tmle_stacked_estimated__equal10__j6__iid_t_control",
@@ -710,13 +714,6 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "few_cluster_reference/tmle_stacked_estimated__unequal_informative__j6__iid_t_control",
         "few_cluster_reference/tmle_stacked_known__equal10__j4__iid_t_control",
         "few_cluster_reference/tmle_stacked_known__equal10__j4__t_reference",
-    ),
-    # The one red no declared reading holds: the five-covariate estimated stacked IID control at
-    # 10 clusters, which sends stacked TMLE to a redeclaration (``few_cluster_floor.REDECLARED_REDS``).
-    "X54-stacked-d5-redeclaration": _keys(
-        "few-cluster-floor-tmle",
-        "property",
-        "few_cluster_reference/tmle_stacked_d5_estimated__unequal_informative__j10__iid_t_control",
     ),
     "X41-negative-control": _keys(
         "sequential-baselines",

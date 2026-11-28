@@ -32,7 +32,10 @@ miss in every all-draw statistic and is left out of the shown-only ones.
 
 **The floor** (plan 5.8). A count passes for a family when every positive configuration passes
 G1 and G2 and its control passes, on every size law it runs on; the family floor is the smallest
-ladder count from which every count passes (:func:`family_floor`).
+ladder count from which every count passes (:func:`family_floor`). For X54 parts (j) and (k),
+:func:`declared_route` also serves a redeclaring study (``redeclaration=False``) and gates a
+control's clause 1 on named laws only (``clause_one_laws``); :func:`arm_mean_floor` reads an
+arm-mean floor that, unlike a family floor, can rise above the default.
 
 **Part (c)** (plan 5.7). On the first :data:`CANDIDATE_DRAWS` draws of each cell, (B) and (C)
 are judged against (A) by paired non-inferiority of all-draw coverage, per cell (99% lower end
@@ -55,9 +58,10 @@ from scipy import stats
 from scipy.special import betaln, gammaln
 
 from cleverly._inference_status import (
+    ARM_MEAN_POINT_ESTIMANDS,
     CLUSTER_INTERVAL_FLOORS,
-    DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
-    DEFAULT_POINT_INTERVAL_CLUSTERS,
+    FEW_CLUSTER_THRESHOLD,
+    estimand_interval_floor,
 )
 from cleverly.inference import influence_variance
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism
@@ -65,6 +69,8 @@ from tests.studies.clustered_few_cluster_tmle import ExactLongitudinalPropensity
 from tests.studies.evidence.inference import Interval, clopper_pearson, percentile_interval
 from tests.studies.evidence.properties import bootstrap_draw_blocks
 from tests.studies.evidence.property_failures import cell_frame, present_cells
+from tests.studies.evidence.property_verdicts import FEW_CLUSTER_IID_CONTROL_CEILING
+from tests.studies.evidence.registry import Margins
 from tests.studies.fractional_glm import QuasiBinomialGLM
 
 #: The family every positive and control row belongs to: the registered two-clause rule of
@@ -1209,18 +1215,77 @@ CHANCE_READING: Final[str] = "finite-sample (plug-in sizing)"
 #: A red ``few_cluster_candidate`` or pooled row: the candidate is not non-inferior to (A)
 #: there, which the part (c) decision reads (rules 4 and 5).
 CANDIDATE_READING: Final[str] = "candidate not non-inferior"
+#: A red IID control whose only failing condition is clause 1 on a law outside the route's
+#: ``clause_one_laws``: the law gives that arm too little cluster dependence for the paired
+#: ratio to fall below 0.80, so clause 1 is reported there with its computed power and gates
+#: nothing (X54 plan rev 2.4, 5.2). It holds at every count, above the floor included. It is a
+#: reading of the arm-mean studies' owner (``X54-estimand-floor``), not of :data:`READINGS`: the
+#: floor studies gate clause 1 on every law, so their routes never return it.
+UNPOWERED_READING: Final[str] = "control unpowered by law"
+#: The one floor-study red a later study re-measures (:data:`SUPERSEDED_REDS`): the cell
+#: measured the exact-propensity bounds on a fitted mechanism, a study defect (X54 plan rev 2.4,
+#: 1.1 and 5.5).
+SUPERSEDED_READING: Final[str] = "superseded (study defect)"
 READINGS: Final[tuple[str, ...]] = (
     AVAILABILITY_READING,
     FINITE_SAMPLE_READING,
     CONTROL_READING,
     CHANCE_READING,
     CANDIDATE_READING,
+    SUPERSEDED_READING,
 )
 #: The withheld-and-lost share above which a red reads as availability.
 AVAILABILITY_SHARE: Final[float] = 0.03
 #: Recorded no-defect diagnoses of reds at or above an anchor, by ``family/cell``; empty at the
 #: declaration, so such a red is a defect suspect until a diagnosis is recorded here.
 NO_DEFECT_DIAGNOSES: Final[dict[str, str]] = {}
+#: Clause 2's ceiling on the positive's shown-only SE-ratio upper end: the SE screen of the
+#: floor studies' margins (``Margins().se_ratio_sanity``), which the registered rule reads.
+CLAUSE_TWO_CEILING: Final[float] = Margins().se_ratio_sanity[1]
+
+
+def control_clauses(control: Mapping[str, Any]) -> tuple[bool, bool, bool]:
+    """The three conditions of a control row's verdict, read off its published columns.
+
+    ``few_cluster_reference_verdicts`` (``shown_only=True``) fails a control with fewer than two
+    draws both arms show and publishes no paired ratio for it; otherwise it passes when clause 1
+    (the paired IID-to-cluster SE ratio's 99% upper end below
+    :data:`~tests.studies.evidence.property_verdicts.FEW_CLUSTER_IID_CONTROL_CEILING`) and clause
+    2 (the positive's shown-only SE-ratio upper end, ``paired_positive_se_ratio_ci_upper``, at
+    most :data:`CLAUSE_TWO_CEILING`) both hold.
+
+    Returns
+    -------
+    tuple of bool
+        Whether two shown draws exist, clause 1 holds, and clause 2 holds.
+    """
+    upper = float(control.get("paired_se_ratio_ci_upper", math.nan))
+    positive = float(control.get("paired_positive_se_ratio_ci_upper", math.nan))
+    shown = math.isfinite(upper)
+    return shown, shown and upper < FEW_CLUSTER_IID_CONTROL_CEILING, positive <= CLAUSE_TWO_CEILING
+
+
+def control_verdict(
+    control: Mapping[str, Any], law: str, clause_one_laws: Iterable[str] | None
+) -> bool:
+    """A control's verdict with clause 1 gated only on ``clause_one_laws`` (review 3 m1).
+
+    Clause 2 and the two-shown-draws condition gate on every law. ``None`` gates clause 1 on
+    every law, which is the registered rule, so the verdict must then be the row's ``passed``.
+
+    Raises
+    ------
+    ValueError
+        When the recomputed verdict contradicts the row's ``passed`` where both read the same
+        rule (clause 1 gated), or a passing row fails the recomputation on any law.
+    """
+    shown, one, two = control_clauses(control)
+    gated = clause_one_laws is None or law in set(clause_one_laws)
+    verdict = shown and two and (one or not gated)
+    passed = bool(control["passed"])
+    if (gated and verdict != passed) or (passed and not verdict):
+        raise ValueError(f"{control['cell']}: its clauses read {verdict}, its row {passed}")
+    return verdict
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1607,19 +1672,25 @@ JACKKNIFE_DEPARTURES: Final[dict[str, tuple[str, str, str]]] = {
         "IID control is red at 10 clusters), and (C) was judged against that (A) reading",
     ),
 }
-#: The owner of a red that sends its family to a redeclaration (post-run ruling P1), and its
-#: one reading. It never reads finite-sample or chance.
-REDECLARATION_OWNER: Final[str] = "X54-stacked-d5-redeclaration"
-REDECLARATION_READING: Final[str] = "redeclaration"
-#: The reds no declared reading holds that the redeclaration owner holds, by study slug: exactly
-#: the d5 estimated IID control at 10 clusters of ``few-cluster-floor-tmle``, whose positive's
-#: shown-only SE-ratio upper end (1.390) exceeds clause 2's 1.20. ``declared_route`` keeps
-#: returning no owner for it, and :data:`NO_DEFECT_DIAGNOSES` stays empty. Any other red with no
-#: owner fails :func:`red_owners`.
-REDECLARED_REDS: Final[dict[str, frozenset[str]]] = {
-    "few-cluster-floor-tmle": frozenset(
-        {f"{FAMILY}/tmle_stacked_d5_estimated__unequal_informative__j10__iid_t_control"}
-    ),
+#: The study that redeclares stacked TMLE (X54 part (j)). The stacked floor is read from it, not
+#: from ``few-cluster-floor-tmle``.
+STACKED_REDECLARATION: Final[str] = "few-cluster-floor-stacked"
+#: The route a family takes when a later study re-measures it: ``"redeclared: {slug}"``. Its
+#: shipped floor is compared with that study's outcome.
+REDECLARED: Final[str] = "redeclared"
+#: The reds no declared reading holds that a later study supersedes, by study slug, each with
+#: the superseding study: exactly the d5 estimated IID control at 10 clusters of
+#: ``few-cluster-floor-tmle``, whose positive's shown-only SE-ratio upper end (1.390) exceeds
+#: clause 2's 1.20 through the tail of the exact-propensity bounds on a fitted mechanism (X54
+#: plan rev 2.4, 1.1). It stays red as a standing record, held by :data:`RED_OWNER` under
+#: :data:`SUPERSEDED_READING` (5.5). ``declared_route`` keeps returning no owner for it, and
+#: :data:`NO_DEFECT_DIAGNOSES` stays empty. Any other red with no owner fails :func:`red_owners`.
+SUPERSEDED_REDS: Final[dict[str, dict[str, str]]] = {
+    "few-cluster-floor-tmle": {
+        f"{FAMILY}/tmle_stacked_d5_estimated__unequal_informative__j10__iid_t_control": (
+            STACKED_REDECLARATION
+        )
+    },
 }
 
 
@@ -1628,22 +1699,23 @@ def red_owners(
     routes: Sequence[Route],
     candidates: Mapping[str, tuple[str, str]],
     *,
-    redeclared: Mapping[str, frozenset[str]] | None = None,
+    superseded: Mapping[str, Mapping[str, str]] | None = None,
 ) -> dict[str, tuple[str, str]]:
     """Every red row of one study and its ``(owner, reading)`` (post-run ruling P1).
 
     ``routes`` are the study's :func:`declared_route` results and ``candidates`` its
-    :func:`candidate_owners`. A red no route holds is held by :data:`REDECLARATION_OWNER` only
-    when ``redeclared`` (default :data:`REDECLARED_REDS`) names it for ``slug``.
+    :func:`candidate_owners`. A red no route holds is held by :data:`RED_OWNER` under
+    :data:`SUPERSEDED_READING` only when ``superseded`` (default :data:`SUPERSEDED_REDS`) names
+    it for ``slug``.
 
     Raises
     ------
     ValueError
-        When a red no route holds is not named in ``redeclared``, or a named red is not an
+        When a red no route holds is not named in ``superseded``, or a named red is not an
         unowned red.
     """
-    redeclared = REDECLARED_REDS if redeclared is None else redeclared
-    named = redeclared.get(slug, frozenset())
+    superseded = SUPERSEDED_REDS if superseded is None else superseded
+    named = set(superseded.get(slug, {}))
     out: dict[str, tuple[str, str]] = dict(candidates)
     unowned = set()
     for route in routes:
@@ -1652,28 +1724,37 @@ def red_owners(
                 unowned.add(name)
             else:
                 out[name] = owner
-    if unowned != set(named):
+    if unowned != named:
         raise ValueError(
-            f"{slug}: unowned reds {sorted(unowned - set(named))}; named reds that are not "
-            f"unowned {sorted(set(named) - unowned)}"
+            f"{slug}: unowned reds {sorted(unowned - named)}; named reds that are not "
+            f"unowned {sorted(named - unowned)}"
         )
-    out.update(dict.fromkeys(sorted(unowned), (REDECLARATION_OWNER, REDECLARATION_READING)))
+    out.update(dict.fromkeys(sorted(unowned), (RED_OWNER, SUPERSEDED_READING)))
     return out
+
+
+#: The two arm means of an ``LTMLE`` floor study: the always-treat and never-treat static plans,
+#: which the package reads on the family's measured design.
+LTMLE_ARM_MEANS: Final[frozenset[str]] = frozenset({"ey_regimen[always]", "ey_regimen[never]"})
 
 
 def estimand_floor(family: str, estimand: str, measured: str) -> int:
     """The package floor a ``family`` fit's ``estimand`` is read against (post-run ruling 2, R1).
 
     A family's floor (:data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS`) certifies the
-    contrast every property cell reads, ``measured``. Every other estimate keeps the default
-    floor of its kind.
+    contrast every property cell reads, ``measured``. Its two arm means
+    (:data:`~cleverly._inference_status.ARM_MEAN_POINT_ESTIMANDS`, :data:`LTMLE_ARM_MEANS`) read
+    the family's arm-mean floor where
+    :data:`~cleverly._inference_status.ARM_MEAN_INTERVAL_FLOORS` has one (X54 plan rev 2.4, 3.1).
+    Every other estimate keeps the default floor of its kind. A study's fits are on its family's
+    measured design, where the package reads the arm-mean floor too.
     """
     if estimand == measured:
         return int(CLUSTER_INTERVAL_FLOORS[family])
-    return (
-        DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
-        if family.startswith("ltmle")
-        else DEFAULT_POINT_INTERVAL_CLUSTERS
+    longitudinal = family.startswith("ltmle")
+    arm_means = LTMLE_ARM_MEANS if longitudinal else ARM_MEAN_POINT_ESTIMANDS
+    return estimand_interval_floor(
+        family, arm_mean=estimand in arm_means, longitudinal=longitudinal
     )
 
 
@@ -1726,6 +1807,10 @@ LOWERED: Final[str] = "lowered"
 #: (J = 15 or 39, a d5 cell, an LTMLE count of 39): nothing can compare it, so it is never read as
 #: chance, the floor stays at the anchor, and the family goes to a redeclaration.
 REDECLARATION: Final[str] = "redeclaration"
+#: The route of the same red in a redeclaring study (``declared_route(redeclaration=False)``,
+#: X54 plan rev 2.4, 3.2 and 5.1): no further redeclaration follows, so the floor stays at the
+#: anchor and the shipped floor's support is withdrawn for that configuration and count.
+SUPPORT_WITHDRAWN: Final[str] = "support withdrawn"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1737,15 +1822,17 @@ class Route:
     family : str
         The study's family name.
     floor : int
-        :math:`F_f` under :func:`family_floor`.
+        :math:`F_f` under :func:`family_floor`, or :math:`F_m` under :func:`arm_mean_floor`.
     route : str
         ``"lowered"``, ``"kept: {count} fails"`` (the count below the anchor fails),
-        ``"defect suspect: {counts}"`` (counts at or above the anchor fail; diagnosed first), or
+        ``"defect suspect: {counts}"`` (counts at or above the anchor fail; diagnosed first),
         ``"redeclaration: {counts}"`` (a red at or above the anchor has no committed
-        counterpart, :data:`REDECLARATION`).
+        counterpart, :data:`REDECLARATION`), or ``"support withdrawn: {counts}"`` for that red
+        in a redeclaring study (:data:`SUPPORT_WITHDRAWN`). :func:`arm_mean_floor` reads
+        ``"lowered: {floor}"``, ``"kept"`` or ``"raised: {floor}"``.
     owners : dict
-        Each red ``family/cell`` and ``(RED_OWNER, reading)``, or ``None`` when no reading
-        holds it (a defect suspect).
+        Each red ``family/cell`` and ``(owner, reading)``, or ``None`` when no reading holds it
+        (a defect suspect).
     """
 
     family: str
@@ -1786,6 +1873,8 @@ def declared_route(
     anchor: int,
     diagnoses: Mapping[str, str] | None = None,
     counterparts: Mapping[str, Counterpart] | None = None,
+    redeclaration: bool = True,
+    clause_one_laws: Iterable[str] | None = None,
 ) -> Route:
     """The route and the red owners of one floor family (plan 5.8, reviews B3 and M3).
 
@@ -1801,13 +1890,22 @@ def declared_route(
     support of the shipped floor for that family. A red at or above the anchor with no committed
     counterpart at all (no cell of the committed study at that law and count) is never read as
     chance: the route is ``"redeclaration: {counts}"``, the floor stays at the anchor, and the
-    family goes to a redeclaration.
+    family goes to a redeclaration. In a redeclaring study (``redeclaration=False``, review m2)
+    the same red reads ``"support withdrawn: {counts}"``, with the floor at the anchor.
+
+    A control's verdict is recomputed from its row (:func:`control_verdict`): clause 1 gates
+    only on ``clause_one_laws`` (default every law, the registered rule), clause 2 and the
+    two-shown-draws condition on every law. A red control whose only failing condition is
+    clause 1 on another law passes its cell and is held under :data:`UNPOWERED_READING`.
     """
     diagnoses = NO_DEFECT_DIAGNOSES if diagnoses is None else diagnoses
     counterparts = anchor_counterparts() if counterparts is None else counterparts
+    controls = {
+        key: control_verdict(control, key[1], clause_one_laws)
+        for key, (_, control) in cells.items()
+    }
     verdicts = {
-        key: bool(positive["passed"]) and bool(control["passed"])
-        for key, (positive, control) in cells.items()
+        key: bool(positive["passed"]) and controls[key] for key, (positive, _) in cells.items()
     }
     configurations = sorted({key[0] for key in cells})
     passes = count_passes(verdicts, configurations)
@@ -1815,16 +1913,17 @@ def declared_route(
     high = sorted(count for count, ok in passes.items() if not ok and count >= anchor)
     uncompared = sorted(
         {
-            count
-            for (_, _, count), pair in cells.items()
-            if count >= anchor
-            for row in pair
-            if not bool(row["passed"]) and str(row["cell"]) not in counterparts
+            key[2]
+            for key, (positive, control) in cells.items()
+            if key[2] >= anchor
+            for row, red in ((positive, not bool(positive["passed"])), (control, not controls[key]))
+            if red and str(row["cell"]) not in counterparts
         }
     )
     if uncompared:
         floor = anchor
-        route = f"{REDECLARATION}: {', '.join(str(count) for count in uncompared)}"
+        reading = REDECLARATION if redeclaration else SUPPORT_WITHDRAWN
+        route = f"{reading}: {', '.join(str(count) for count in uncompared)}"
     elif high:
         route = f"defect suspect: {', '.join(str(count) for count in high)}"
     elif floor < anchor:
@@ -1832,12 +1931,15 @@ def declared_route(
     else:
         route = f"kept: {max(c for c, ok in passes.items() if not ok)} fails"
     owners: dict[str, tuple[str, str] | None] = {}
-    for (_, _, count), (positive, control) in sorted(cells.items()):
+    for key, (positive, control) in sorted(cells.items()):
+        count = key[2]
         for row, is_control in ((positive, False), (control, True)):
             if bool(row["passed"]):
                 continue
             name = f"{FAMILY}/{row['cell']}"
-            if count >= anchor or count >= floor:
+            if is_control and controls[key]:
+                owners[name] = (RED_OWNER, UNPOWERED_READING)
+            elif count >= anchor or count >= floor:
                 chance = name in diagnoses and agrees_with_committed(
                     row, counterparts.get(str(row["cell"])), control=is_control
                 )
@@ -1846,6 +1948,87 @@ def declared_route(
                 owners[name] = (RED_OWNER, CONTROL_READING)
             else:
                 owners[name] = (RED_OWNER, red_reading(positive))
+    return Route(family, floor, route, owners)
+
+
+def arm_mean_floor(
+    cells: Mapping[tuple[str, str, str, int], tuple[Mapping[str, Any], Mapping[str, Any]]],
+    *,
+    family: str,
+    anchor: int,
+    contrast_floor: int,
+    ladder: Iterable[int],
+    owner: str,
+    prefix: str,
+    clause_one_laws: Iterable[str] | None = None,
+) -> Route:
+    """The arm-mean floor of one family, its route and its red owners (X54 plan rev 2.4, 3.2).
+
+    ``cells`` maps ``(configuration, law, estimand, count)`` to the positive and control summary
+    rows of one gated arm mean (``ey0``, ``ey1`` or an ``LTMLE`` static level). A cell passes
+    when its positive passes and its control's :func:`control_verdict` does, clause 1 gated on
+    ``clause_one_laws`` only (default every law); a count passes when every cell at it passes,
+    every arm mean included. The floor :math:`F_m` is the smallest ``ladder`` count, at least
+    ``contrast_floor``, from which every count passes. Unlike :func:`family_floor` it is not
+    capped at ``anchor`` (the default floor): a red at or above the anchor raises it to the
+    smallest count above that red, and a red at the top count to
+    :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD`. The route reads
+    ``"lowered: {F}"``, ``"kept"`` or ``"raised: {F}"`` against the anchor. It never reads
+    chance: the caller records a diagnosis of every red at or above the anchor before it calls
+    this, and a recorded defect keeps the affected cells out of ``cells``.
+
+    Owners, as ``{prefix}/{cell}``: a red control whose only failing condition is clause 1 on a
+    law outside ``clause_one_laws`` is held under :data:`UNPOWERED_READING` at every count; every
+    other red below :math:`F_m` under ``owner`` with :func:`red_reading` (positive) or
+    :data:`CONTROL_READING` (control); any other red at or above :math:`F_m` has no owner
+    (``None``), which :func:`red_owners` refuses.
+
+    Raises
+    ------
+    ValueError
+        When ``cells`` misses a ladder count, holds a count off the ladder, or does not hold
+        every ``(configuration, law, estimand)`` at every count; or when no ladder count reaches
+        ``contrast_floor``.
+    """
+    counts = sorted(set(ladder))
+    arms = {key[:3] for key in cells}
+    expected = {(*arm, count) for arm in arms for count in counts}
+    if set(cells) != expected:
+        raise ValueError(
+            f"{family}: cells missing {sorted(expected - set(cells))}, off the ladder "
+            f"{sorted(set(cells) - expected)}"
+        )
+    if counts[-1] < contrast_floor:
+        raise ValueError(f"{family}: no ladder count reaches the contrast floor {contrast_floor}")
+    controls = {
+        key: control_verdict(control, key[1], clause_one_laws)
+        for key, (_, control) in cells.items()
+    }
+    red = {
+        key[3]
+        for key, (positive, _) in cells.items()
+        if not (bool(positive["passed"]) and controls[key])
+    }
+    above = [count for count in counts if count >= contrast_floor and count > max(red, default=0)]
+    floor = above[0] if above else FEW_CLUSTER_THRESHOLD
+    if floor < anchor:
+        route = f"{LOWERED}: {floor}"
+    elif floor == anchor:
+        route = "kept"
+    else:
+        route = f"raised: {floor}"
+    owners: dict[str, tuple[str, str] | None] = {}
+    for key, (positive, control) in sorted(cells.items()):
+        for row, is_control in ((positive, False), (control, True)):
+            if bool(row["passed"]):
+                continue
+            name = f"{prefix}/{row['cell']}"
+            if is_control and controls[key]:
+                owners[name] = (owner, UNPOWERED_READING)
+            elif key[3] < floor:
+                owners[name] = (owner, CONTROL_READING if is_control else red_reading(positive))
+            else:
+                owners[name] = None
     return Route(family, floor, route, owners)
 
 
