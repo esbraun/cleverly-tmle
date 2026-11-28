@@ -1,0 +1,153 @@
+{
+  "schema_version": 2,
+  "study": "A point additive shift with a learned density",
+  "slug": "point-shift-learned-density",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-point-shift-learned-density",
+      "cleverly_version": "0.2.8",
+      "cleverly_commit": "87bbec27d8949837540b41c1d168b4cb9351817a",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.14",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.1.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0",
+      "dependency_lock_sha256": "83aef5d141eef81dab3f8d6ada2cd29b513f15373809fed8887810270d15ab60"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1200,
+    "n": 3000,
+    "seed": 20261221,
+    "resampling_seed": 20261222,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-point-shift-learned-density": 0.01
+    },
+    "scenarios": {
+      "shift_law": [
+        "in_sample_learned: ate_policy[+0.5 capped at 5 vs current practice]",
+        "in_sample_learned: ate_policy[+0.5 uncapped vs current practice]",
+        "in_sample_learned: ate_policy[+1.0 uncapped vs current practice]",
+        "in_sample_learned: ey_policy[current practice]",
+        "in_sample_learned: ey_policy[+0.5 capped at 5]",
+        "in_sample_learned: ey_policy[+0.5 uncapped]",
+        "in_sample_learned: ey_policy[+1.0 uncapped]",
+        "crossfit_learned: ate_policy[+0.5 capped at 5 vs current practice]",
+        "crossfit_learned: ate_policy[+0.5 uncapped vs current practice]",
+        "crossfit_learned: ate_policy[+1.0 uncapped vs current practice]",
+        "crossfit_learned: ey_policy[current practice]",
+        "crossfit_learned: ey_policy[+0.5 capped at 5]",
+        "crossfit_learned: ey_policy[+0.5 uncapped]",
+        "crossfit_learned: ey_policy[+1.0 uncapped]",
+        "in_sample_oracle: ate_policy[+0.5 capped at 5 vs current practice]",
+        "in_sample_oracle: ate_policy[+0.5 uncapped vs current practice]",
+        "in_sample_oracle: ate_policy[+1.0 uncapped vs current practice]",
+        "in_sample_oracle: ey_policy[current practice]",
+        "in_sample_oracle: ey_policy[+0.5 capped at 5]",
+        "in_sample_oracle: ey_policy[+0.5 uncapped]",
+        "in_sample_oracle: ey_policy[+1.0 uncapped]"
+      ]
+    },
+    "law": "shift_dgp() at its defaults (make_shift_dose), n = 3000",
+    "policies": [
+      "current practice",
+      "+0.5 capped at 5",
+      "+0.5 uncapped",
+      "+1.0 uncapped"
+    ],
+    "parameters": {
+      "capped": "ate_policy[+0.5 capped at 5 vs current practice]",
+      "uncapped": "ate_policy[+0.5 uncapped vs current practice]",
+      "one": "ate_policy[+1.0 uncapped vs current practice]",
+      "ey_current": "ey_policy[current practice]",
+      "ey_capped": "ey_policy[+0.5 capped at 5]",
+      "ey_uncapped": "ey_policy[+0.5 uncapped]",
+      "ey_one": "ey_policy[+1.0 uncapped]"
+    },
+    "truths": {
+      "capped": 0.7760761197271981,
+      "uncapped": 0.812499847418565,
+      "one": 1.7499996948371295,
+      "ey_current": 3.3950062636163225,
+      "ey_capped": 4.171082383343521,
+      "ey_uncapped": 4.2075061110348875,
+      "ey_one": 5.145005958453452
+    },
+    "outcome_learner": "make_pipeline(PolynomialFeatures(2), LinearRegression())",
+    "density_learner": "HistGradientBoostingClassifier({'max_depth': 2, 'learning_rate': 0.05, 'max_iter': 200, 'l2_regularization': 1.0}, random_state=<fit seed>)",
+    "density_bins": 40,
+    "in_sample_learned": "TMLE(cross_fit=False, ratio='density')",
+    "crossfit_learned": "TMLE(cross_fit=True, n_folds=3, q_bounds=(-7.89, 35.91), ratio='density')",
+    "in_sample_oracle": "TMLE(cross_fit=False, ratio='density') with OracleShiftDensity(shift_dgp(), bin_edges(A, 40))",
+    "q_bounds": "the outcome's 1e-10 and 1 - 1e-10 quantiles under the law, rounded outward",
+    "fit_seed": "stream_seed(record, 'fit_seed', 'primary', scenario, replicate)",
+    "efficiency_bounds": {
+      "capped": 0.540505,
+      "uncapped": 0.529648,
+      "one": 1.222596
+    },
+    "true_ratio_sd": {
+      "capped": 0.548355,
+      "uncapped": 0.532941,
+      "one": 1.310856
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/point_shift_learned_density.py": "52538065a7f3e53a92e81f411e48395127a1dcccce2b3d8fc20f5a9654c729fa",
+    "tests/studies/point_shift_learned_density_properties.py": "d91d69a372ffb19f280f4c699588017092e55867f55142c49bf22317a0a1b03a",
+    "tests/studies/point_shift_learned_density_pilot.py": "d6c15e62a3546861bd4ea6dff82527326e29f25493513ca4088dcff1a5474372",
+    "tests/studies/mtp_study_tools.py": "b7bb5aefd466fbc69bd490ca2f8043c1b7654d209f0cdb54d5a3e8953cc903b9",
+    "tests/studies/_point_shift_learned_density_law.py": "adfc64f5cdd412dd51f8aff6f6fec2d42b93129090085913f9e88c9af18f9e84",
+    "tests/studies/canonical_shift_policies.py": "a08ea0c885eb54bccddda7eb43c59684aa54f0f5479323566a8c2668024a09d0",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "src/cleverly/estimators/tmle.py": "e69782a311100f7b341fe47641ace383b67b9cac2283719c05c7a290ccc28b8b",
+    "src/cleverly/learners/density.py": "02c9a20316f82f4e2f16ef369c958420a33f236c64308f18e6b3dbda9cf4cad1",
+    "src/cleverly/interventions/policy.py": "eb788262052dc28bc679bd6a6182a44eb97177fe5b43e4e782bd6701e2093151",
+    "src/cleverly/_support.py": "f84bfe58fa1d438dd85d3a14a674078ddfcf1ff264c831fc3e4fea7b9bb66722",
+    "tests/studies/evidence/performance.py": "b8c1e0227432ee7abe471e6a4d690b43a06c07cc5b7ba50d9f5070f930346e1b",
+    "tests/studies/evidence/properties.py": "0983217d38df582900a498db61afd9f6c63a2758ed190abf415c0c91d95fc3ab",
+    "tests/studies/evidence/property_verdicts.py": "91f9f50df353faf0e9024efbbe868bd0fcd277b4cb1bb1ded03a9fae7103d1f2",
+    "tests/studies/evidence/schema.py": "049a0a2288b9c94fd38353b07d74bc108f5eb4e728e04ff6ab2dbdd11d886fd6",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.parquet": "14db0cb6b6e67bfd509abd65320ad51b8fc50b2602dfb8c5f769ca0e99675635",
+    "summary.csv": "9d3ff6ca5cb2715882e0e1bbc484aa9792ce9391bfc4d8f301cf1bad9f73da42",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "0882354f6d5ab97c4debc9090c8ad8356ee029d0fe4f09c9c8c0504b619fd571",
+    "property-replicates.parquet": "b3ca63f4b03d5b64fb0740b36cba146a22731a113fd1ca892b9bed513e7e1c35",
+    "properties.csv": "573ebb19ccaf4b558f60e728babf8865ff5566c05f0478f9adabcc070a32c881",
+    "harness.csv.gz": "c0ce34f5eafc36fd2473ff8e2dc85e796b0fa1445520ce825a2767752026b8ee"
+  }
+}

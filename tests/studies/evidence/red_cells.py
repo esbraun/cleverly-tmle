@@ -798,6 +798,16 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "cleverly-composite-drtmle/three_arm_mar_outcome_and_treatment/ey[high]",
         "drtmle-r-composite/three_arm_mar_outcome_and_treatment/ey[high]",
     ),
+    # X121 (b2).  The in-sample learned-density arm of the point-shift study, declared
+    # ``reporting`` with this owner before the run: its +1.0 contrast covers 0.8967 with an SE
+    # ratio of 0.80, a finite-sample limit of the in-sample learned density (the oracle arm on
+    # the same draws covers 0.9442 with an SE ratio of 0.957).  The arm adds no support row.
+    "X121-learned-density-finite-sample": _keys(
+        "point-shift-learned-density",
+        "truth",
+        "cleverly-point-shift-learned-density/shift_law/"
+        "in_sample_learned: ate_policy[+1.0 uncapped vs current practice]",
+    ),
     # The two laws of the RM30 reporting study.  F27 states, row by row, that the
     # ``exceptional`` cell has no published result and that the ``weak_blip`` cell has one.
     "F27": _keys(

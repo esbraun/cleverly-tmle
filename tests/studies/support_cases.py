@@ -2471,6 +2471,25 @@ def _learned_rule_ep_cases() -> tuple[RowCase, ...]:
     return (case("non_exceptional"), case("misspecified_limit"), optimal)
 
 
+def _point_shift_learned_density_cases() -> tuple[RowCase, ...]:
+    """The case of ``point-shift-learned-density`` (X121 b2): ``T-point-shift-learned-density``.
+
+    The study's cross-fitted learned-density fit on a draw at the primary size, up to the
+    classifier. One fit holds the three contrasts the row's cells name.
+    """
+    return (
+        _observed(
+            "T-point-shift-learned-density",
+            "point-shift-learned-density",
+            "crossfit_learned_capped",
+            "_point_shift_learned_density_law.py:185",
+            "_point_shift_learned_density_law",
+            lambda law: law.draw(law.N, 0),
+            lambda law, frame: law.fit("crossfit_learned", frame, 0),
+        ),
+    )
+
+
 def _learned_rule_ep_declared_cases() -> tuple[RowCase, ...]:
     """The cases of ``learned-rule-ep-declared`` (P1 PR 1): ``T51`` and ``T51.optimal``.
 
@@ -3742,6 +3761,7 @@ CASES: tuple[RowCase, ...] = (
     *_learned_rule_learners_cases(),
     *_learned_rule_ep_cases(),
     *_learned_rule_ep_declared_cases(),
+    *_point_shift_learned_density_cases(),
     *_fold_evaluated_strata_cases(),
     *_learned_rule_strata_cases(),
     *_learned_rule_stacked_cases(),

@@ -1,0 +1,22 @@
+=== point-shift-learned-density declared run
+command: /home/user/cleverly-tmle/.venv/bin/python /home/user/cleverly-tmle/tests/canonical/point_shift_learned_density/regenerate.py --output /tmp/claude-0/run1 --jobs 4
+commit: 87bbec27d8949837540b41c1d168b4cb9351817a; upstream 87bbec27d8949837540b41c1d168b4cb9351817a
+clean tree: True
+cleverly 0.2.8 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.14; numpy 2.5.4; scipy 1.18.1; pandas 3.1.1; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 133, sha256 03a11290d6a16d0b04536cd82dafc55b028692e9cef11552b7c56b6abdb03d2e
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-26T17:49:25+00:00
+finished: 2026-11-27T06:41:19+00:00
+wall seconds: 46314.0
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 harness.csv.gz: c0ce34f5eafc36fd2473ff8e2dc85e796b0fa1445520ce825a2767752026b8ee
+sha256 manifest.json: 2e93a9f80b42ac06bd29db3ae6c68b1eb23fca055e9c17925b34b2fc37b208d3
+sha256 performance-tests.csv: 0882354f6d5ab97c4debc9090c8ad8356ee029d0fe4f09c9c8c0504b619fd571
+sha256 properties.csv: 573ebb19ccaf4b558f60e728babf8865ff5566c05f0478f9adabcc070a32c881
+sha256 property-replicates.parquet: b3ca63f4b03d5b64fb0740b36cba146a22731a113fd1ca892b9bed513e7e1c35
+sha256 replicates.parquet: 14db0cb6b6e67bfd509abd65320ad51b8fc50b2602dfb8c5f769ca0e99675635
+sha256 summary.csv: 9d3ff6ca5cb2715882e0e1bbc484aa9792ce9391bfc4d8f301cf1bad9f73da42
+

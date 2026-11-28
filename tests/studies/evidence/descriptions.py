@@ -13351,3 +13351,84 @@ for _fcal_fit in ("ltmle_crossfit", "ltmle_glm"):
             f"{_FCAL_FITS[_fcal_fit]}, 20 {_FCAL_LAWS['equal40']}: {_FCAL_ARMS[_fcal_arm]}",
             _fcal_required,
         )
+
+
+#: ``point-shift-learned-density`` (X121 part b2): a point additive shift of a continuous dose
+#: whose conditional density is learned on the binned density route, in sample and cross-fitted,
+#: beside the exact density on the fit's grid. The law, arms and labels are those of
+#: ``tests/studies/_point_shift_learned_density_law.py``.
+_PSLD_SLUG = "point-shift-learned-density"
+IMPLEMENTATIONS["cleverly-point-shift-learned-density"] = (
+    "`cleverly` TMLE of a point additive shift on the density route, with the outcome learner "
+    "degree-2 least squares and the arm the estimand names fitting the dose density"
+)
+STUDY_SCENARIOS[_PSLD_SLUG, "shift_law"] = (
+    "the shift law of `make_shift_dose` (`shift_dgp()` at its defaults): three normal "
+    "covariates, a normal dose whose mean depends on them, and a quadratic outcome, at n = 3,000"
+)
+_PSLD_ARMS = {
+    "in_sample_learned": (
+        "in sample, the density a regularized HistGradientBoostingClassifier on 40 core bins"
+    ),
+    "crossfit_learned": (
+        "cross-fitted on three folds, the same learned density, and the outcome range declared "
+        "from the law"
+    ),
+    "in_sample_oracle": "in sample, the exact density of the law on the fit's own grid",
+}
+_PSLD_PARAMETERS = {
+    "ate_policy[+0.5 capped at 5 vs current practice]": (
+        "mean outcome with each dose raised by 0.5 and capped at 5, minus the natural course"
+    ),
+    "ate_policy[+0.5 uncapped vs current practice]": (
+        "mean outcome with each dose raised by 0.5, minus the natural course"
+    ),
+    "ate_policy[+1.0 uncapped vs current practice]": (
+        "mean outcome with each dose raised by 1.0, minus the natural course"
+    ),
+    "ey_policy[current practice]": "mean outcome under the natural course",
+    "ey_policy[+0.5 capped at 5]": "mean outcome with each dose raised by 0.5 and capped at 5",
+    "ey_policy[+0.5 uncapped]": "mean outcome with each dose raised by 0.5",
+    "ey_policy[+1.0 uncapped]": "mean outcome with each dose raised by 1.0",
+}
+STUDY_ESTIMANDS.update(
+    {
+        (_PSLD_SLUG, f"{arm}: {parameter}"): f"{words}; {_PSLD_ARMS[arm]}"
+        for arm in _PSLD_ARMS
+        for parameter, words in _PSLD_PARAMETERS.items()
+    }
+)
+_PSLD_CONTRASTS = {
+    "capped": "the +0.5 shift capped at 5",
+    "uncapped": "the +0.5 shift",
+    "one": "the +1.0 shift",
+}
+STUDY_CELLS.update(
+    {
+        **{
+            (_PSLD_SLUG, "interval_calibration", f"crossfit_learned_{tag}__declared"): (
+                f"the contrast of {words} against the natural course, cross-fitted with the "
+                "learned density, on the shift law at n = 3,000",
+                "SE ratio and coverage intervals both inside their calibration bands",
+            )
+            for tag, words in _PSLD_CONTRASTS.items()
+        },
+        **{
+            (_PSLD_SLUG, "interval_calibration", f"crossfit_learned_{tag}__shrunken_se_control"): (
+                f"the same cross-fitted fit of {words}, its reported standard errors multiplied "
+                "by 0.70",
+                "the SE-ratio interval must fall below the calibration band",
+            )
+            for tag, words in _PSLD_CONTRASTS.items()
+        },
+        **{
+            (_PSLD_SLUG, "interval_calibration", f"crossfit_learned_{tag}__noise_control"): (
+                f"the same cross-fitted fit of {words}, with independent normal noise added to "
+                "each estimate at a declared scale, the law's influence-curve SD over the square "
+                "root of n",
+                "the SE-ratio interval must fall below the calibration band",
+            )
+            for tag, words in _PSLD_CONTRASTS.items()
+        },
+    }
+)

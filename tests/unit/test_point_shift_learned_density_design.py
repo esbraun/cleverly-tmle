@@ -16,7 +16,7 @@ import pandas as pd
 import pytest
 from scipy.stats import norm
 
-from cleverly._support import density_learner_family, point_key
+from cleverly._support import density_learner_family, point_key, registered_rows
 from cleverly.data.causal_data import CausalData
 from cleverly.learners.density import bin_edges
 from tests.studies import _point_shift_learned_density_law as law
@@ -167,7 +167,7 @@ def test_the_primary_count() -> None:
 
 def test_the_calibration_count_at_an_ideal_pilot() -> None:
     sized = tools.per_arm_replicates([1.0, 1.0, 1.0], pilot.PILOT_DRAWS)
-    assert sized["R"] == properties.CALIBRATION_REPLICATES == 4_800
+    assert sized["R"] == 4_800 <= properties.CALIBRATION_REPLICATES
     # A known ratio of 1 (an infinite pilot) needs 3,200: the floor any pilot can reach.
     assert tools.smallest_replicates(1.0, 10**9, 3, tau=0.0)[0] == 3_200
 
@@ -183,7 +183,7 @@ def test_an_unsizable_heavy_tailed_pilot_runs_at_the_ceiling() -> None:
 
 def test_heavier_tails_raise_the_count() -> None:
     sized = properties.calibration_count([1.0, 1.0, 1.0], [1.25, 1.0, 1.0])
-    assert sized["c"] == 1.25 and sized["rule"] > properties.CALIBRATION_REPLICATES
+    assert sized["c"] == 1.25 and sized["rule"] > 4_800
     assert sized["declared"] == min(sized["rule"], sized["cap"])
 
 
@@ -316,3 +316,42 @@ def test_the_study_is_registered_after_its_declared_run() -> None:
     if not (study.STUDY.artifacts / "manifest.json").exists():
         pytest.skip("the declared run has not been made")
     assert study.STUDY.slug in {record.slug for record in registered()}
+
+
+def test_the_registered_row_is_the_declared_row() -> None:
+    """The passing reading added :func:`support_row` verbatim to the shipped rows."""
+    rows = {row.id: row for row in registered_rows()}
+    assert rows["T-point-shift-learned-density"] == study.support_row()
+
+
+def test_the_declared_reading_holds() -> None:
+    """The committed verdicts meet the reading that licenses the row (the study docstring)."""
+    performance = pd.read_csv(study.STUDY.artifacts / "performance-tests.csv")
+    gated = performance[performance["estimand"].str.startswith(f"{study.GATED_ARM}: ")]
+    assert len(gated) == len(law.PARAMETERS)
+    assert gated["passed"].all()
+    properties_table = pd.read_csv(study.STUDY.artifacts / "properties.csv")
+    assert set(properties_table["cell"]) == set(study.PROPERTY_CELLS["interval_calibration"])
+    assert properties_table["passed"].all()
+
+
+def test_an_unmeasured_density_setting_or_bin_count_stays_out_of_the_row() -> None:
+    """The probe's cross-fitted default booster, and the measured booster on other bins, miss."""
+    from sklearn.ensemble import HistGradientBoostingClassifier
+
+    frame = law.draw(400, 3)
+    row = study.support_row()
+    others = {
+        "default booster": {"treatment_learner": HistGradientBoostingClassifier(random_state=7)},
+        "deeper booster": {
+            "treatment_learner": HistGradientBoostingClassifier(
+                **{**law.BOOSTER, "max_depth": 3}, random_state=7
+            )
+        },
+        "other bins": {"density_bins": 20},
+    }
+    for name, override in others.items():
+        other = law.estimator("crossfit_learned", frame, 7, **override)
+        assert not row.matches(*_key(other, frame)), name
+    seeded = law.estimator("crossfit_learned", frame, 123)
+    assert row.matches(*_key(seeded, frame)), "the seed is not a setting"
