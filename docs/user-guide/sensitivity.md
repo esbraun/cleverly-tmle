@@ -8,6 +8,9 @@ confounder have to be to change the conclusion? A robust result is one that only
 confounder could overturn. It does not show that no such confounder exists; whether one that strong
 is plausible is your judgement about the subject.
 
+A sensitivity analysis differs from a [refutation](refutation.md) test, which checks that the analysis recovers a known answer on changed
+data and says nothing about a variable the data do not hold.
+
 `result.sensitivity` offers four analyses, and each measures strength in its own way:
 
 - `omitted_confounding()` gives the range of estimates that a missing confounder of declared
@@ -145,7 +148,7 @@ could.
 The bound also assumes that the treatment model gets each row's chance of treatment right, at least
 approximately, and more closely as the data grow. If it does not, the average squared weight comes
 out too small and the bounds too narrow. No check proves this, but the treatment-model and balance
-checks on [Check a fitted result](assessment.md) look for signs of a poor treatment model.
+checks on [Diagnostics](assessment.md) look for signs of a poor treatment model.
 
 ### Compare with a covariate you recorded
 
@@ -401,7 +404,7 @@ if either model is right.
 
 ### Other methods and the combined report
 
-`run_all()` here and `result.assess()` on [Check a fitted result](assessment.md) report the same
+`run_all()` here and `result.assess()` on [Diagnostics](assessment.md) report the same
 sensitivity rows. The other point-treatment methods are `elements()`, the inputs of the bound,
 `contour()`, the bound over a grid of strengths, and `missingness()` and `tipping_gamma()`, below.
 The overlap check and the weight-cap curve live under `result.diagnostics`.
@@ -578,7 +581,59 @@ how the planted confounder moves each kind of fit, and every limit.
 | a controlled direct effect | `ConfounderStrengthGrid(intermediate=(0.0, 0.2))` | the treatment is held and the intermediate switches; a nonzero treatment strength is refused |
 | a continuous outcome fitted with a declared range (`q_bounds`) | `bounded_outcome_law="logit"` (the default) or `"normal_score"` | moved outcomes stay inside the bounds, so the outcome strength is not in the outcome's own units; compare `induced_outcome_association` across fits |
 | observation weights | nothing | each weight stays on its row, and the replay does not regenerate estimated weights. `surface.target_measure` and `surface.weight_report` describe the weights |
-| a treatment over time, fitted with `LTMLE`, `SDR`, `SequentialGComputation`, `SequentialIPW` or `ParametricGFormula`, on a panel with no covariate measured after the first node: an uncensored end-of-study outcome, or a survival outcome with the treatment held from baseline ([survival](survival.md#check-sensitivity-to-a-missing-confounder)) | `estimand=`, such as `"ate_regimen[never vs always]"`. `treatment={"A2": (0.0, 0.1)}` moves one node | one hidden value per person is shared by every node and the outcome. Each cell reports one association per node, and a later node's includes the path through the earlier ones |
+| a treatment over time, fitted with `LTMLE`, `SDR`, `SequentialGComputation`, `SequentialIPW` or `ParametricGFormula`, on a panel with no covariate measured after the first node: an uncensored end-of-study outcome, or a survival outcome with the treatment held from baseline ([survival](#sensitivity-analysis-of-a-time-to-event-fit)) | `estimand=`, such as `"ate_regimen[never vs always]"`. `treatment={"A2": (0.0, 0.1)}` moves one node | one hidden value per person is shared by every node and the outcome. Each cell reports one association per node, and a later node's includes the path through the earlier ones |
+
+### Sensitivity analysis of a fit over time
+
+`result.sensitivity.simulated_confounding()` covers panels with no covariate measured after
+the first node, as [the planted confounder on other fits](#the-planted-confounder-on-other-fits) shows. An
+end-of-study outcome must be uncensored. A censored `TimeToEvent` fit is covered too, as the
+[next section](#sensitivity-analysis-of-a-time-to-event-fit) describes.
+
+`result.sensitivity.evalue()` reads the risk ratio of two static plans at one horizon of a
+`TimeToEvent` fit. The other sensitivity analyses, such as the omitted-variable bound, have no
+longitudinal estimator and report `unavailable`. Tan (2025) derives population bounds for binary,
+static longitudinal strategies, but no sample estimator for them. The
+[roadmap](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) records that boundary.
+
+### Sensitivity analysis of a time-to-event fit
+
+Two sensitivity analyses run on a `TimeToEvent` fit. Each asks how a confounder that the data do
+not record could change the answer.
+
+| call | what it does | where it runs |
+| --- | --- | --- |
+| `result.sensitivity.evalue((numerator, denominator))` | reads the risk ratio of two reported risks at one time and says how strongly a missing confounder would need to be tied to both treatment and event to explain it away | two static plans at one horizon. Name the risks, numerator first, such as `("risk_regimen[arm1 @ t=4]", "risk_regimen[arm0 @ t=4]")`. On a fit with exact times, name the two arms' risks of one event at one target time, such as `("cif_regimen[treated, relapse @ t=2]", "cif_regimen[control, relapse @ t=2]")` |
+| `result.sensitivity.simulated_confounding(...)` | plants a made-up confounder of chosen strengths and refits. It is a stress test, not a bound | a survival or competing-risk fit whose treatment is one baseline decision held over follow-up, censored or not, and a fit with exact times |
+
+`simulated_confounding` returns a surface: one estimate for each pair of confounder strengths in
+the grid you pass. To read it, find the weakest confounder at which the estimate crosses zero, and judge
+whether an unrecorded factor that strong is plausible in your setting. Each cell also reports
+which share of the replayed rows came from the fitted models; a high share means the replay leans
+on the models more than on the data.
+
+:::{dropdown} Details: how the replay works
+On a censored fit, the simulated confounder raises or lowers each person's chance of the event at
+every time point, and the follow-up is replayed. Censoring is drawn again where the treatment
+changed, and a person whose event the confounder removes stays in follow-up on fitted models. A
+grid cell with both strengths at zero gives the original estimate.
+[The stress surface](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+gives the replay and its checks.
+
+On a fit with exact times, the confounder scales each person's event rate of every event type
+up or down, and new event and censoring times are drawn from models the analysis fits for this
+purpose. Censoring is again drawn afresh only where the treatment changed, and both strengths at
+zero give back the recorded times and the original estimate. Each grid cell other than that one
+refits the whole analysis, so a 3 by 3 grid costs 8 refits: seconds at a few hundred people, and
+minutes for a large cross-fitted fit. The surface prints numbers, not a pass or fail.
+[Continuous-time survival replay](../technical-reference/validation-methods.md#simulated-common-cause-stress-surface)
+gives the law and its checks.
+:::
+
+Both analyses, and the checks that generate new outcomes (`dummy_outcome`, `simulated_outcome`,
+`plasmode`), refuse a fit with `eliminate=` or a separable effect; the E-value reads only two ordinary arms. The
+placebo, subset and random-common-cause checks of [refutation](refutation.md#refutation-of-a-fit-over-time) run
+on these fits.
 
 ### The analyses in the tutorials
 
@@ -587,6 +642,7 @@ how the planted confounder moves each kind of fit, and every limit.
 | [One treatment, one outcome](../examples/point-treatment-tmle.ipynb) | the missing-confounder bound with a recorded covariate for comparison, the E-value, the worst-case bounds and the planted confounder |
 | [Smoking and twins' birth weight](../examples/twins-causal-inference.ipynb) | the bound, the E-value and the planted confounder for the effect on the treated |
 | [Missing survey answers](../examples/survey-nonresponse.ipynb), [Gain over current practice](../examples/population-impact.ipynb) | the bound and the E-value, and the analyses for missing outcomes |
+| [An interview of a sample of patients](../examples/sampling-weights.ipynb) | the bound on a fit with sampling weights, with recorded covariates for comparison |
 | [A strong predictor of treatment](../examples/collaborative-tmle.ipynb) | the bound and the planted confounder on a collaborative TMLE fit |
 | [Three offer policies](../examples/interventions.ipynb) | the planted confounder on policy effects |
 | [More contacts and more service time](../examples/schedules-and-intensity.ipynb) | the planted confounder on policy effects, moving only the recorded treatment, so it tests recording errors rather than confounding |

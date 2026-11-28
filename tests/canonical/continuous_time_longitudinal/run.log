@@ -1,0 +1,33 @@
+=== continuous-time-longitudinal declared run
+command: /usr/local/bin/python /home/user/cleverly-tmle/tests/canonical/continuous_time_longitudinal/regenerate.py --output /tmp/e2-merged --jobs 4
+commit: 8cead46122cce9ebbdca868707feb7479ac49a28; upstream 8cead46122cce9ebbdca868707feb7479ac49a28
+clean tree: True
+cleverly 0.2.8 from /home/user/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.18; numpy 2.5.3; scipy 1.18.1; pandas 3.0.5; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 118, sha256 7d243c9c447fe9c089e42826ee4531696fb0e0a0933c8c34a20d8ee6e2b5cddd
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-11-26T18:03:23+00:00
+finished: 2026-11-26T18:04:30+00:00
+wall seconds: 67.0
+exit code: 1
+sha256 calibration.csv: 9b57dc497be014a43c0edc04c3816db3896ddd7fa6566a8f38c024fd16537a28
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 exposed-rows.csv: 3fe1c999687883d868e859720c9d52d061ba8729aacd0b85f2a4bd29cee35fb4
+sha256 failure-accounting.csv: 236b38642128980b69bb7a398a674231b36c99ff5fc52dac5b611647bc5dc7f1
+sha256 failures.csv: 5dfa74dde50e8ce450cb8b2af6233a15d1c02cfd139af0d7539dd7fe19a75d30
+sha256 floors.csv: 8d70a5bd3e09fab904acd482cc11c45ed2eef12e9b0105e8f5eb9cd11e436200
+sha256 longitudinal-rows.csv.gz: 2c9efbde7abd374b7699c318b3a042e16a3da4ccd9868deda8475060186be762
+sha256 ltmle-pairing.csv: 95d58ddae05ad1c09b355f97bb805472fb07f8be6a761d012d68821c2adb3d39
+sha256 manifest.json: 94416522cf0a6dbf4706e0e5074b6f9f4d562ca014a45270470f4aca14296726
+sha256 mechanism-correct.csv: 6d494f2723225295140a5e4344007214bd95949c6dae4a650ccc7b67adfa0976
+sha256 misspecified.csv: 8bbfaef60262690cd1367eefd0f2d63dd41993c446bff0161bf0c285071dc670
+sha256 performance-tests.csv: d9bd68d91f58a7aef667d4bc053a244ad440fb8a7d94461704062e419ae241cd
+sha256 properties.csv: f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a
+sha256 property-replicates.parquet: dd8a47681fd2920201f8b0d2016db74dbd4c45f019231350e31532ea17bde3d8
+sha256 replicates.parquet: c2a5a81bc05c70e6c7d56ad87463a7f69e24f6ae19b7f8f91cf8a93152ebfcbf
+sha256 secondary-rows.csv.gz: 6e251bd9dfee14d36c8ce69054d3ecc5408d9f52238d58e9604d0ffb5cb4fe27
+sha256 summary.csv: 26b9bbbd37ce7c9df0cea56928674eaad8265ed709a16474c372cee214a5bdca
+sha256 targeting-readings.csv: 53db35e00f6abfad6f03e4204935e81bc61b461974fd6a6d7f64354506a97820
+sha256 visit-cap.csv: 78a7da2ce37b1dc6473fb7cec9427dbd93276fdd79363293861f05bec404818d
+

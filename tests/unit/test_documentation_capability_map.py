@@ -56,6 +56,7 @@ MAP_ROWS: dict[str, str] = {
     "Collaborative TMLE of a risk curve": "Can the data choose the treatment and censoring models?",
     "Drift-corrected survival TMLE": "Can the risk interval stay valid when the event model, or the treatment and censoring models, are wrong?",
     "Continuous-time survival and competing risks": "Can I use the exact event times instead of a grid?",
+    "Continuous-time longitudinal TMLE": "What if the treatment changes at visits that fall at different times for each person?",
     "DR-TMLE": "The default interval needs both models close to right. Can it hold when one is wrong?",
     "Adaptive-propensity IPTW": "Can I estimate with treatment weights alone (IPTW), with no outcome model?",
     "Adaptive TMLE for a trial with external data": "Can outside rows, such as a registry, sharpen a small trial's estimate, correcting for how they differ?",

@@ -633,6 +633,100 @@ def check_memory(estimate: PeakEstimate, max_memory_bytes: int | None) -> None:
     raise error
 
 
+def longitudinal_peak_bytes(
+    *,
+    rows: int,
+    times: int,
+    causes: int,
+    visit_times: int,
+    targets: int,
+    bins: int,
+    units: int,
+    covariates: int,
+    block_cells: int,
+) -> int:
+    """The predicted peak of a continuous-time longitudinal fit, from its largest node.
+
+    The node walk keeps the node's fixed inputs, its exit cells and the continuation's bin
+    hazards, a candidate of each, the direction of each, and one block of temporaries; every
+    unit's plug-in and influence rows and the hazard predictions of the node's rows sit beside
+    them (X6 part (e), plan 3.5.8).
+
+    Parameters
+    ----------
+    rows : int
+        The rows of the largest node.
+    times : int
+        The grid size ``M``.
+    causes : int
+        Causes ``J``.
+    visit_times : int
+        The visit-grid size ``U``.
+    targets : int
+        Targets of one regime, ``J`` times the target times.
+    bins : int
+        Bins ``B``, one per target time.
+    units : int
+        Units ``n``.
+    covariates : int
+        Design columns.
+    block_cells : int
+        The cells of one block's temporaries.
+
+    Returns
+    -------
+    int
+        Bytes.
+    """
+    cM = rows * times
+    exits = (causes + 1) * cM
+    continuation = causes * rows * visit_times * bins
+    fixed = F8 * 2 * cM + (causes + 1) * cM + F8 * rows * (2 * targets + covariates)
+    # The state, a candidate and a direction of each family, plus the hazard predictions
+    # (cause, visit, censoring, at the slot and the factual design).
+    states = F8 * 3 * (exits + continuation) + F8 * 2 * (causes + 2) * cM
+    # A block's per-target temporaries: about six arrays of its cells.
+    working = F8 * 6 * block_cells
+    # Every unit's plug-ins and influence rows of each regime.
+    unit_rows = F8 * 4 * units * targets
+    return int(fixed + states + working + unit_rows)
+
+
+def check_longitudinal_memory(predicted: int, max_memory_bytes: int | None) -> None:
+    """Refuse a continuous-time longitudinal fit whose predicted peak exceeds its budget.
+
+    Parameters
+    ----------
+    predicted : int
+        :func:`longitudinal_peak_bytes`.
+    max_memory_bytes : int or None
+        The budget; ``None`` reads the memory available now and checks nothing where the
+        platform does not report it.
+
+    Raises
+    ------
+    ContinuousSurvivalMemoryError
+        When the prediction exceeds the budget.
+    """
+    explicit = max_memory_bytes is not None
+    budget = available_memory() if max_memory_bytes is None else int(max_memory_bytes)
+    if budget is None or predicted <= budget:
+        return
+    source = f"max_memory_bytes={budget}" if explicit else "the memory available now"
+    error = ContinuousSurvivalMemoryError(
+        f"The continuous-time longitudinal fit is predicted to hold at least "
+        f"{_gib(predicted)} at once, in its largest node's walk, and the budget is "
+        f"{_gib(budget)}, {source}. Nothing was fitted.",
+        alternative=(
+            "Pass max_memory_bytes= to ContinuousLongitudinalTMLE to set the budget yourself, "
+            "or choose fewer or earlier target times."
+        ),
+    )
+    error.predicted = predicted
+    error.budget = budget
+    raise error
+
+
 def resident_count(shape: dict[str, Any], bounds: Any, max_memory_bytes: int | None) -> int:
     """The blocks a walk keeps between passes: as many as the rest of the budget holds.
 
@@ -732,9 +826,11 @@ __all__ = [
     "ContinuousSurvivalMemoryError",
     "PeakEstimate",
     "bootstrap_held",
+    "check_longitudinal_memory",
     "check_memory",
     "design_width",
     "estimate_count",
+    "longitudinal_peak_bytes",
     "peak_bytes",
     "resident_count",
     "slot_bytes",

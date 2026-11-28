@@ -71,6 +71,14 @@ unreturned surveys and a 7-day primary-care visit after the offer. `population_i
 its exact truths, including the population attributable risk and the controlled direct effect at
 each visit level. `make_population_impact` is not in `GENERATORS`.
 
+`make_discharge_practices` draws the program data of the
+[discharge-practices example](../examples/ranking-exposures.ipynb): five discharge practices and
+whether each patient stayed home for 30 days. The navigation offer makes a booked follow-up visit
+more likely. `discharge_practices_truth` holds the exact effect of each practice with
+the other practices held as they were and with the booking following the navigation offer, and
+`PRACTICES` names the five practices in order. `discharge_practices_protocol` returns the study
+description the ranking records. `make_discharge_practices` is not in `GENERATORS`.
+
 Three functions serve the team readmission part of the
 [discharge-to-readmission tutorial](../examples/discharge-to-readmission.ipynb).
 
@@ -88,6 +96,25 @@ Four functions serve the [treatment-rules tutorial](../examples/treatment-rules.
 | `treatment_rule_value` | the exact share who stay home under any rule or random offer, written as the chance of an offer for each patient |
 | `treatment_rule_effect` | the true difference in the chance of staying home, offered minus not, at each need score |
 | `learned_rule_truth` | the true value of the fold rules of a learned-rule fit of these data |
+
+Four names serve the [two-decision rules tutorial](../examples/two-decision-rules.ipynb).
+
+| name | what it holds |
+| --- | --- |
+| `make_two_decision_rules` | a wide frame of patients through navigation at discharge, a day-14 self-care score, telemonitoring at day 14, dropout after each decision, and staying home through day 30, with the value of each fixed plan and of the best pair of rules, and the best rules' cutoffs |
+| `TWO_DECISION_COLUMNS` | the `LTMLE.fit` roles of those columns |
+| `learned_regimen_truth` | the true value of the fold rule pairs of a learned-regimen fit of these data |
+| `two_decision_rules_protocol` | the `StudyProtocol` of the two-decision question |
+
+Three functions serve the [subgroup-effects tutorial](../examples/subgroup-effects.ipynb).
+
+| function | what it returns |
+| --- | --- |
+| `make_home_support` | a frame of patients with age, discharge risk, a living situation stored as text (`HOME_SUPPORT_LEVELS`: family, alone, paid carer), the navigation offer, a 7-day primary-care visit, and staying home for 30 days, with the exact truths |
+| `home_support_truth` | the exact effect of the offer in each living situation, with the visit free or held at no or yes, the risk ratios, and the coefficients of four projections by the names a fit prints |
+| `home_support_effect` | the true effect at any living situation and age, total or with the visit held |
+
+`make_home_support` is not in `GENERATORS`.
 
 Three functions serve the [separable-effects tutorial](../examples/separable-effects.ipynb).
 
@@ -132,6 +159,9 @@ follows a rule of the needs recorded before it.
    cleverly.datasets.point_survival_truth
    cleverly.datasets.make_population_impact
    cleverly.datasets.population_impact_truth
+   cleverly.datasets.make_discharge_practices
+   cleverly.datasets.discharge_practices_truth
+   cleverly.datasets.discharge_practices_protocol
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol
@@ -161,6 +191,12 @@ follows a rule of the needs recorded before it.
    cleverly.datasets.treatment_rule_value
    cleverly.datasets.treatment_rule_effect
    cleverly.datasets.learned_rule_truth
+   cleverly.datasets.make_two_decision_rules
+   cleverly.datasets.learned_regimen_truth
+   cleverly.datasets.two_decision_rules_protocol
+   cleverly.datasets.make_home_support
+   cleverly.datasets.home_support_truth
+   cleverly.datasets.home_support_effect
    cleverly.datasets.make_heart_failure
    cleverly.datasets.heart_failure_truth
    cleverly.datasets.heart_failure_protocol

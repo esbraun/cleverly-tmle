@@ -1,16 +1,14 @@
 # Examples
 
-## Start here
+## How the examples work
 
 Each example is a complete analysis that you can run and adapt. It loads a dataset, estimates what
 a treatment, offer, or policy did, tests whether the result holds up, and says what you can tell a
-manager. Twenty-one examples use simulated data, so each page can compare its estimate with the
-true answer. The twenty-second uses real birth records. If you are new to causal inference, read
-[one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
+manager. Every example but one uses simulated data, so each page can compare its estimate with the
+true answer. The [TWINS example](twins-causal-inference.ipynb) uses real birth records. If you
+are new to causal inference, read [one treatment, one outcome](point-treatment-tmle.ipynb) first. It explains each step that the
 other pages reuse, and [Read cleverly's output](../user-guide/reading-output.md) explains the labels,
 tables and row names that every page prints.
-
-## Find the example for your problem
 
 Most examples use targeted maximum likelihood estimation (TMLE). It fits two models: an outcome
 model, which predicts the outcome from the treatment and the patient's characteristics, and a
@@ -18,30 +16,112 @@ treatment model, which predicts who got the treatment. A correction step then us
 model to remove the bias that the outcome model leaves, giving more weight to patients whose own
 treatment was unlikely.
 
+## Find the example for your problem
+
+The Start here table, and each topic page, pair a tutorial with the situation it fits and the mistake
+it shows.
+
+### Start here
+
+The first page runs a whole analysis on simulated data and explains each step that the other
+tutorials reuse. The second runs one on real records, where no true answer is known.
+
 | your situation | example | the mistake it shows |
 | --- | --- | --- |
 | a treatment given once and an outcome measured later | [one treatment, one outcome](point-treatment-tmle.ipynb) | a simple comparison of treated and untreated patients mixes the treatment's effect with who received it. The page also shows what happens to the estimate when one or both models are wrong |
-| flexible models such as gradient boosting, or patients who share a care team | [flexible models and shared teams](cross-fitting.ipynb) | a model that predicts the same rows it was trained on looks more accurate than it is, and an analysis that treats teammates as independent ignores that their results move together. Both make the interval too narrow |
-| one recorded variable strongly predicts who gets the treatment | [a strong predictor of treatment](collaborative-tmle.ipynb) | some patients become nearly certain or nearly unable to get the treatment, so the few exceptions get very large weights. In 2,000 simulated repeats, the 95% interval of standard TMLE contained the truth only 93% of the time, so it was slightly too narrow |
-| many outcomes are missing, for example unanswered surveys | [missing survey answers](survey-nonresponse.ipynb) | analyzing only those who answered estimates the effect for people like the respondents, who differ from the whole group |
-| a small randomized trial, plus outside records on the same outcome from patients who were not randomized | [a small pilot with outside records](trial-with-external-data.ipynb) | in the records, sicker patients got the offer more often, so the simple pooled difference is off (7.58 against a true 6.05). Learning how the records differ from the pilot, a fixed offset, and removing it narrowed the interval, and the interval is valid only for the effect within the description of the difference that the fit picked |
-| the treatment was assigned at random with a recorded chance, as in a pilot | [a randomized pilot](randomized-pilot.ipynb) | because the chance of the offer differed by risk group, a simple comparison of offered and other patients is confounded even though the offer was random (here -0.006 against a true 0.142). Replacing the recorded chances with a fitted model of who got the treatment gives up the one model known to be right; when that fitted model and the outcome model are both wrong, the estimate is biased |
-| the gain from offering everyone over current practice, or whether the offer still helps when a later step, such as a doctor's visit within 7 days, is guaranteed for everyone | [gain over current practice](population-impact.ipynb) | the usual average effect compares offering everyone with offering no one, so it also counts the gain current practice has already collected and overstates what offering everyone would add |
-| policies to compare, such as offering a program only to high-risk patients, raising each patient's chance of an offer, or raising how much of the program each patient gets | [three offer policies](interventions.ipynb) | each policy has its own starting point: offering only to high-risk patients is compared with offering no one, and the other two with current practice, so the answers do not rank the policies or compare one with another directly. A staffing limit on how much each patient can get is part of the question: the same raise with and without the limit gives two different answers |
-| an effect that changes with a customer's or patient's characteristics, such as age, and you want to see how before deciding whom to target | [who gains most from a coupon](conditional-effects.ipynb) | within each age group, a simple comparison of customers with and without a coupon mixes the coupon's effect with who received it, and here it overstates the gain for older customers who gain almost nothing. The curve has no confidence interval, so the page checks it on held-out rows before acting on it, and fits a simpler shape with intervals |
-| a treatment that helps some patients and harms others, so you must decide who gets it, or share a limited number of places at random | [who should get the offer](treatment-rules.ipynb) | a rule scored on the same patients it was learned from looks better than it will do on new patients |
-| a team chooses among several contact schedules, or sets two service times, and you want the effect of nudging those choices or raising both amounts | [more contacts and more service time](schedules-and-intensity.ipynb) | when two services help each other, the effects of raising each one alone do not add up to the effect of raising both |
-| several treatment levels, summarized by one trend | [a trend across three contact schedules](msm-projections.ipynb) | a straight line through the levels still reports a slope when it does not fit them, so the slope alone can mislead |
-| time until an event, when another event such as death can come first and some people leave follow-up | [readmission when death can come first](longitudinal-survival.ipynb) | treating death like dropout estimates readmission in a world where nobody dies, which the program cannot bring about |
-| one treatment at discharge and an event such as readmission by day 30, 60 and 90, when some patients leave follow-up, or patients who share a team over two decisions | [readmission by day 30, 60 and 90](discharge-to-readmission.ipynb) | treating patients of one team as independent ignores that their risks move together, so the interval is too narrow |
-| a treatment repeated weekly, where earlier offers change later behavior | [weekly offer policies](sequential-offers.ipynb) | treating two policies as if they had been tried on separate customers, when both are estimated from the same customers, overstates the uncertainty of their difference |
-| an outcome recorded every week, such as whether a customer ordered, while the treatment repeats | [weekly orders under repeated offers](weekly-outcomes.ipynb) | fitting each week without the earlier orders leaves out what drove later offers, and adding the weekly variances as if the weeks were independent makes the interval for the total slightly too narrow |
-| repeated treatments where you can model how the whole process unfolds | [three offers after discharge](model-based-over-time.ipynb) | a model of the process that is too simple gives a confident wrong answer; comparing two methods that rest on different models shows the problem |
-| a continuous dose, such as a discount from 0% to 40%, and how the outcome changes across its range | [renewal discounts](dose-response.ipynb) | subscribers who got bigger discounts renewed less, because the engine gave them to less active subscribers. The curve has no interval at one exact discount, so the page reads it averaged over nearby discounts. Where the engine almost never gives some subscribers a discount, the intervals run short even when the overlap check looks clean |
-| a price or dose that varies continuously and is set again each month | [monthly prices](sequential-pricing.ipynb) | one regression that holds later behavior and later prices fixed misses part of the effect of a price rise |
-| a fitted result that you want to look at, check, and explain with figures | [plot results](plots.ipynb) | a table of estimates hides which patients had almost no chance of an offer, how the estimate moves when a setting changes, and a method whose intervals all miss on one side |
 | a full analysis of real records, where no true answer is known | [smoking and twins' birth weight](twins-causal-inference.ipynb) | adjusting for a variable that the treatment itself changes, here gestational age, removes part of the effect |
-| a treatment with two parts that act on two competing events, such as a medicine that lowers readmission through one part and raises the risk of death through another | [a medicine with two effects](separable-effects.ipynb) | the drop in readmission under the whole medicine includes patients who died before they could be readmitted, so reading it as the benefit of the part that acts on readmission overstates that benefit |
+
+### One treatment, outcome measured once
+
+Your data record one treatment decision per person, such as an offer at discharge, and one outcome
+measured once, later. Pick the heading that matches your question.
+
+#### [Overall effect of one or several treatments](topics/average-effect.md)
+
+These tutorials estimate what giving a treatment to everyone would change on average, compared with
+giving it to no one or with current practice. One of them ranks several practices at once.
+
+- [A randomized pilot: TMLE with known treatment chances](randomized-pilot.ipynb)
+- [Gain over current practice: TMLE for population impact](population-impact.ipynb)
+- [Which discharge practices matter: ranking candidate exposures with TMLE](ranking-exposures.ipynb)
+
+#### [Effects by characteristic or group](topics/effects-by-group.md)
+
+These tutorials break the effect down by a recorded characteristic, such as age, or by groups of
+people, such as those who live alone.
+
+- [Who gains most from a coupon: an effect that changes with age](conditional-effects.ipynb)
+- [Does navigation help patients who live alone more? Effects by group, with intervals](subgroup-effects.ipynb)
+
+#### [Learn whom to treat from the data](topics/targeting-rules.md)
+
+This tutorial learns a rule that decides who gets the treatment, from recorded characteristics, and
+estimates how well the rule would do on new people. It also shows a random offer when there are
+fewer places than people who qualify.
+
+- [Who should get the offer: learned rules and random offers with TMLE](treatment-rules.ipynb)
+
+#### [Compare set policies and doses](topics/amounts-and-policies.md)
+
+These tutorials compare policies you specify in advance, such as offering the treatment only to
+high-risk patients, giving more or less of it, or how renewals change with the size of a discount.
+
+- [Three offer policies: TMLE for policy effects](interventions.ipynb)
+- [More contacts and more service time: TMLE for policy effects](schedules-and-intensity.ipynb)
+- [A trend across three contact schedules: TMLE for a trend line](msm-projections.ipynb)
+- [Renewal discounts: how the chance of renewing changes with the discount](dose-response.ipynb)
+
+### Repeated treatments, or time until an event
+
+Your data record a treatment decided more than once per person, or the time until an event such as
+readmission or churn. Look here first, whatever your question.
+
+#### [Treatments repeated over time](topics/repeated-over-time.md)
+
+These tutorials follow a treatment that is decided again and again, such as a weekly offer or a
+monthly price, where earlier treatments change later behavior and later decisions.
+
+- [Weekly offer policies: longitudinal TMLE and g-computation](sequential-offers.ipynb)
+- [Weekly orders under repeated offers: longitudinal TMLE](weekly-outcomes.ipynb)
+- [Two decisions after discharge: a learned treatment rule with longitudinal TMLE](two-decision-rules.ipynb)
+- [Three offers after discharge: g-formula and blip models](model-based-over-time.ipynb)
+- [Monthly prices: longitudinal TMLE for a continuous treatment](sequential-pricing.ipynb)
+
+#### [Risk of an event by a given day (churn, readmission)](topics/time-to-event.md)
+
+These tutorials estimate the risk of an event by a given day, when some people leave follow-up and
+another event, such as death, can come first. They follow hospital readmission; the same analysis
+applies to the time until a customer churns.
+
+- [Readmission when death can come first: longitudinal TMLE](longitudinal-survival.ipynb)
+- [Readmission by day 30, 60 and 90: longitudinal TMLE](discharge-to-readmission.ipynb)
+- [A medicine with two effects on readmission and death: separable effects with TMLE](separable-effects.ipynb)
+
+### Data issues and model choices (any question)
+
+These problems can arise with any question: imperfect data, and choosing and checking the models
+inside a fit. The tutorials show them with one treatment and one outcome.
+
+#### [Missing answers, samples, or a trial plus outside records](topics/missing-and-combined-data.md)
+
+These tutorials handle data that a textbook analysis assumes away. Outcomes go missing, a sample is
+drawn with unequal chances, or a small randomized trial is combined with outside records that differ
+from it.
+
+- [Missing survey answers: TMLE with a model of who responds](survey-nonresponse.ipynb)
+- [An interview of a sample of patients: TMLE with sampling weights](sampling-weights.ipynb)
+- [A small pilot with outside records: adaptive TMLE](trial-with-external-data.ipynb)
+
+#### [Choosing models and checking results](topics/models-and-checks.md)
+
+These tutorials choose the prediction models inside a fit, such as gradient boosting. They keep the
+interval honest when the models are flexible, when patients share a team, or when one variable
+nearly decides who gets the treatment. The last one checks and explains a result with figures.
+
+- [Choosing the prediction models: Super Learner ensembles in TMLE](learner-choice.ipynb)
+- [Flexible models and shared teams: cross-validated TMLE](cross-fitting.ipynb)
+- [A strong predictor of treatment: collaborative TMLE](collaborative-tmle.ipynb)
+- [Plot results: see what an estimate's numbers hide](plots.ipynb)
 
 ## The health program
 
@@ -132,7 +212,7 @@ correlated. Scores are in simulated units.
 
 ## The retailer program
 
-Four examples follow a subscription retailer. On the [weekly offer
+Several examples follow a subscription retailer. On the [weekly offer
 policies](sequential-offers.ipynb) page, the retailer sends each customer one offer in each of three
 weeks: nothing, a 15% discount code, or a free-shipping code. Its system draws each offer at random,
 with logged probabilities that depend on the customer's engagement that week, so the chance of each
@@ -188,81 +268,66 @@ figures of fits that the pages below explain.
 | example | method | reference |
 | --- | --- | --- |
 | [one treatment, one outcome](point-treatment-tmle.ipynb) | TMLE, with each row predicted by models trained without it | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
-| [flexible models and shared teams](cross-fitting.ipynb) | the same method (CV-TMLE), showing why those out-of-fold predictions matter with flexible models, and keeping each team together when the models are trained and the interval computed | [CV-TMLE](../technical-reference/cv-tmle.md) |
-| [a strong predictor of treatment](collaborative-tmle.ipynb) | collaborative TMLE, here predicting the treatment from the outcome model's predictions instead of from every characteristic | [collaborative TMLE](../technical-reference/collaborative-tmle.md) |
-| [missing survey answers](survey-nonresponse.ipynb) | TMLE with a model of who responds | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
-| [a small pilot with outside records](trial-with-external-data.ipynb) | adaptive TMLE, which learns how the outside records differ from the pilot and removes that difference | [adaptive TMLE](../technical-reference/adaptive-tmle.md) |
+| [smoking and twins' birth weight](twins-causal-inference.ipynb) | TMLE for the effect among the treated | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 | [a randomized pilot](randomized-pilot.ipynb) | TMLE with the recorded chances of treatment, also for the effects among treated and untreated patients (ATT, ATC), beside doubly robust TMLE (DR-TMLE) and adaptive-propensity weighting | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md), [DR-TMLE](../technical-reference/dr-tmle/index.md) and [adaptive-propensity IPTW](../technical-reference/adaptive-iptw.md) |
 | [gain over current practice](population-impact.ipynb) | TMLE for the population gain over current practice (attributable risk and fraction), risk and odds ratios, and the controlled direct effect | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
-| [three offer policies](interventions.ipynb) | TMLE for policies | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
+| [which discharge practices matter](ranking-exposures.ipynb) | one cross-fitted TMLE fit for each candidate practice, with p-values adjusted for testing several at once (Benjamini-Hochberg) | [variable importance](../technical-reference/validation-methods.md#variable-importance) |
+| [who gains most from a coupon](conditional-effects.ipynb) | the EP learner of a conditional effect curve, with a rule learned on half the customers and valued on the other half; a TMLE projection on cosine waves with intervals and a band; a targeting curve and a calibration check of a priority score; a learned rule's gain | [conditional effects](../technical-reference/conditional-effects.md) |
+| [does navigation help patients who live alone more?](subgroup-effects.ipynb) | TMLE of the effect in each group, with intervals, a band over the groups and a test that they gain the same; the same with a straight line in age; the effect with a later doctor's visit held fixed, an age trend inside each group, and risk ratios by group | [conditional effects](../technical-reference/conditional-effects.md) |
 | [who should get the offer](treatment-rules.ipynb) | the value of a treatment rule learned inside each fold (CV-TMLE), and a random offer with known chances | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
+| [three offer policies](interventions.ipynb) | TMLE for policies | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 | [more contacts and more service time](schedules-and-intensity.ipynb) | TMLE for an odds change across three treatment levels, and for a joint raise of two treatment amounts | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
 | [a trend across three contact schedules](msm-projections.ipynb) | a trend line across treatment levels (MSM projection) | [MSM projections](../technical-reference/msm-projections.md) |
-| [readmission when death can come first](longitudinal-survival.ipynb) | TMLE for treatments over time, when death can come first | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
-| [readmission by day 30, 60 and 90](discharge-to-readmission.ipynb) | TMLE for the risk by each follow-up day after one treatment, and cross-fitted TMLE over two decisions with intervals that treat each team as one unit | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
+| [renewal discounts](dose-response.ipynb) | cross-fitted TMLE for a dose-response curve averaged over nearby doses, with one band over every reported dose | [smoothed dose-response curve](../technical-reference/dose-response.md) |
 | [weekly offer policies](sequential-offers.ipynb) | TMLE for treatments over time, compared with week-by-week g-computation and a simple comparison | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) and [sequential g-computation and IPW](../technical-reference/sequential-baselines.md) |
 | [weekly orders under repeated offers](weekly-outcomes.ipynb) | TMLE for a weekly outcome curve under repeated treatments, with the sequentially doubly robust estimator and an odds-doubling policy over weeks | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
+| [two decisions after discharge](two-decision-rules.ipynb) | longitudinal TMLE for the value of a pair of treatment rules, one for each decision, learned inside each fold | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md#learned-regimens) |
 | [three offers after discharge](model-based-over-time.ipynb) | the parametric g-formula, which simulates each plan forward, and a structural nested mean (blip) model of what each offer adds, checked against longitudinal TMLE | [parametric g-formula](../technical-reference/parametric-gformula.md), [structural dynamic effects](../technical-reference/structural-dynamic-effects.md) and [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
-| [renewal discounts](dose-response.ipynb) | cross-fitted TMLE for a dose-response curve averaged over nearby doses, with one band over every reported dose | [smoothed dose-response curve](../technical-reference/dose-response.md) |
 | [monthly prices](sequential-pricing.ipynb) | TMLE for shifts of a continuous treatment over time | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
-| [who gains most from a coupon](conditional-effects.ipynb) | the EP learner of a conditional effect curve, with a rule learned on half the customers and valued on the other half; a TMLE projection on cosine waves with intervals and a band; a targeting curve and a calibration check of a priority score; a learned rule's gain | [conditional effects](../technical-reference/conditional-effects.md) |
-| [smoking and twins' birth weight](twins-causal-inference.ipynb) | TMLE for the effect among the treated | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
+| [readmission when death can come first](longitudinal-survival.ipynb) | TMLE for treatments over time, when death can come first | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
+| [readmission by day 30, 60 and 90](discharge-to-readmission.ipynb) | TMLE for the risk by each follow-up day after one treatment, and cross-fitted TMLE over two decisions with intervals that treat each team as one unit | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
 | [a medicine with two effects](separable-effects.ipynb) | TMLE for separable effects: the risk of each of two competing events when the part of a treatment that acts on one event and the part that acts on the other are set to different doses | [longitudinal TMLE](../technical-reference/longitudinal-tmle.md) |
+| [missing survey answers](survey-nonresponse.ipynb) | TMLE with a model of who responds | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
+| [an interview of a sample of patients](sampling-weights.ipynb) | TMLE with sampling weights, with effects for two risk groups and missing treatment records | [point-treatment TMLE](../technical-reference/point-treatment-tmle.md) |
+| [a small pilot with outside records](trial-with-external-data.ipynb) | adaptive TMLE, which learns how the outside records differ from the pilot and removes that difference | [adaptive TMLE](../technical-reference/adaptive-tmle.md) |
+| [choosing the prediction models](learner-choice.ipynb) | TMLE with out-of-fold predictions, with each model a cross-validated blend of candidate models (a Super Learner), the default blend, and screening of the treatment model's columns | [nuisance learners](../technical-reference/nuisance-learners.md) and [CV-TMLE](../technical-reference/cv-tmle.md) |
+| [flexible models and shared teams](cross-fitting.ipynb) | the same method (CV-TMLE), showing why those out-of-fold predictions matter with flexible models, and keeping each team together when the models are trained and the interval computed | [CV-TMLE](../technical-reference/cv-tmle.md) |
+| [a strong predictor of treatment](collaborative-tmle.ipynb) | collaborative TMLE, here predicting the treatment from the outcome model's predictions instead of from every characteristic | [collaborative TMLE](../technical-reference/collaborative-tmle.md) |
 
 ```{toctree}
-:caption: First example
+:caption: Start here
+:hidden:
 :maxdepth: 1
 
-point-treatment-tmle
+One treatment, one outcome <point-treatment-tmle>
+Smoking and twins' birth weight <twins-causal-inference>
 ```
 
 ```{toctree}
-:caption: Look at a result
-:maxdepth: 1
+:caption: One treatment, outcome measured once
+:hidden:
+:maxdepth: 2
 
-plots
+topics/average-effect
+topics/effects-by-group
+topics/targeting-rules
+topics/amounts-and-policies
 ```
 
 ```{toctree}
-:caption: One treatment, other designs
-:maxdepth: 1
+:caption: Repeated treatments, or time until an event
+:hidden:
+:maxdepth: 2
 
-cross-fitting
-collaborative-tmle
-survey-nonresponse
-randomized-pilot
-trial-with-external-data
-population-impact
+topics/repeated-over-time
+topics/time-to-event
 ```
 
 ```{toctree}
-:caption: Policies and treatment levels
-:maxdepth: 1
+:caption: Data issues and model choices (any question)
+:hidden:
+:maxdepth: 2
 
-interventions
-treatment-rules
-conditional-effects
-schedules-and-intensity
-msm-projections
-dose-response
-```
-
-```{toctree}
-:caption: Treatments and events over time
-:maxdepth: 1
-
-longitudinal-survival
-discharge-to-readmission
-sequential-offers
-weekly-outcomes
-model-based-over-time
-sequential-pricing
-separable-effects
-```
-
-```{toctree}
-:caption: Real data
-:maxdepth: 1
-
-twins-causal-inference
+topics/missing-and-combined-data
+topics/models-and-checks
 ```

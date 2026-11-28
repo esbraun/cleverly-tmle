@@ -525,7 +525,7 @@ def _check_sensitivity(namespace: dict[str, Any]) -> None:
 
 
 def _check_refutation(namespace: dict[str, Any]) -> None:
-    """Try to break the result: the placebo, subset, noise and generated-outcome readings of the slope."""
+    """Refutation: the placebo, subset, noise and generated-outcome readings of the slope."""
     trend, slope = namespace["trend_result"], namespace["SLOPE"]
     original = trend[slope].psi
     refutation = namespace["refutation"]

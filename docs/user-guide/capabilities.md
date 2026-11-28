@@ -87,6 +87,7 @@ readmission, prevents it.
 | Can the data choose the treatment and censoring models? | `CollaborativeTMLEMethod` on a `TimeToEvent` design, which reports point estimates only | [time-to-event outcomes](survival.md), "Let the data choose the treatment and censoring models"; [theory](../technical-reference/collaborative-tmle.md#time-to-event-outcomes) |
 | Can the risk interval stay valid when the event model, or the treatment and censoring models, are wrong? | `DRTMLEMethod` on a `TimeToEvent` design | [time-to-event outcomes](survival.md), "Keep the interval when one set of models is wrong"; [theory](../technical-reference/dr-tmle/theorem.md#time-to-event-outcomes) |
 | Can I use the exact event times instead of a grid? | `TimeToEvent(grid="continuous")`, which takes the default method only | [time-to-event outcomes](survival.md), "Exact event times, without a grid"; [theory](../technical-reference/continuous-time-survival.md) |
+| What if the treatment changes at visits that fall at different times for each person? | `ContinuousLongitudinalTMLE`, fitted directly to one row per stretch between visits, with each plan giving the treatment at the start and at every later visit | [time-to-event outcomes](survival.md), "Treatments that change at irregular visits"; [theory](../technical-reference/continuous-time-longitudinal.md) |
 
 ## A trial with outside data
 

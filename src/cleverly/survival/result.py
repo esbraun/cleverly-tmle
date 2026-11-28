@@ -1144,8 +1144,313 @@ def build_estimates(
     return out, covariance
 
 
+class _TargetedRisks:
+    """The reading of targeted risks shared by the continuous-time survival results.
+
+    :class:`ContinuousSurvivalResult` and
+    :class:`~cleverly.survival.ContinuousLongitudinalResult` hold every arm's risk at each
+    cause and target time and each arm's difference from the first arm, named by
+    :func:`level_name` and :func:`contrast_name`; both read their curve, smooth functions, ratios
+    and frame through this one code path.
+    """
+
+    estimates: dict[str, ParameterEstimate]
+    simultaneous: Any
+    arms: tuple[str, ...]
+    causes: tuple[str, ...]
+    horizons: tuple[float, ...]
+    n: int
+    backend: str | None
+    #: The support of a smooth function of reported estimates.
+    _contrast_support: ClassVar[Support] = CONTRAST_SUPPORT
+    #: The support of a ratio the fit did not report.
+    _ratio_support: ClassVar[Support] = RATIO_SUPPORT
+
+    def _predictable(self) -> PredictableCovariance | None:
+        """The predictable-variation covariance, ``None`` under the influence-curve variance."""
+        return None
+
+    def _single(self) -> bool:
+        return len(self.causes) == 1
+
+    def _arm(self, arm: str, what: str) -> int:
+        if arm not in self.arms:
+            raise ValueError(f"{what}: unknown arm {arm!r}; this fit compares {list(self.arms)}")
+        return self.arms.index(arm)
+
+    def _risk_index(self) -> dict[str, tuple[str, str | None, float]]:
+        """``name -> (arm, cause, time)`` of every reported risk, composed forward."""
+        single = self._single()
+        return {
+            level_name(arm, None if single else cause, time): (
+                arm,
+                None if single else cause,
+                time,
+            )
+            for arm in self.arms
+            for cause in self.causes
+            for time in self.horizons
+        }
+
+    def _refuse_untargeted_time(self, time: float) -> None:
+        """Refusal C2: a time that is not a target time."""
+        raise CapabilityError(
+            f"{_t(time)} is not a target time, and a risk between target times solves no "
+            f"score equation of the fit; the target times are {list(self.horizons)}.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=f"Add {_t(time)} to horizons= and fit again.",
+        )
+
+    def _untargeted_risk(self, name: str) -> float | None:
+        """The time of ``name`` when it names a risk of this fit at an untargeted time."""
+        match = _LEVEL_PATTERN.match(name)
+        if match is None:
+            return None
+        try:
+            time = float(match.group("time"))
+        except ValueError:
+            return None
+        single = self._single()
+        for arm in self.arms:
+            for cause in self.causes:
+                if level_name(arm, None if single else cause, time) == name:
+                    return None if time in self.horizons else time
+        return None
+
+    def _derive(
+        self,
+        names: Sequence[str],
+        run: Callable[[Mapping[str, ParameterEstimate]], ParameterEstimate],
+    ) -> ParameterEstimate:
+        """A derived estimate from ``run``, under the fit's variance.
+
+        Under ``variance="influence_curve"`` this is ``run`` of the stored estimates.  Under
+        ``"switched"``, ``run`` builds the derived curve from the inputs' influence-curve
+        versions, and the same ``run`` on their gradients over the targeted levels gives the
+        derived gradient :math:`h`: the delta method is linear in the curves at fixed values,
+        so the derived curve is the levels' curves times :math:`h`.  The derived estimate then
+        reports the switched variance of :math:`h^\\top \\hat\\Sigma_{pv} h`, with the switch
+        read on its own curve.
+        """
+        chosen = [self.estimates[key] for key in names]
+        covariance = self._predictable()
+        if covariance is None or not any(e.switched is not None for e in chosen):
+            return run(self.estimates)
+        view = {key: _influence_view(self.estimates[key]) for key in names}
+        derived = run(view)
+        rows = {key: replace(view[key], influence_curve=covariance.gradients[key]) for key in names}
+        gradient = run(rows).influence_curve
+        rebuilt = make_estimate(
+            derived.name,
+            derived.psi,
+            derived.influence_curve,
+            n=derived.n,
+            rule_widened=derived.rule_widened,
+            scale=derived.scale,
+            alpha=derived.alpha,
+            log_psi=derived.log_psi,
+            covariance_rule="switched",
+            inference=derived.inference,
+            reference_df=derived.reference_df,
+            support=derived.support,
+            bounds=derived.bounds,
+            outcome_family=derived.outcome_family,
+            range_interval=derived.range_interval,
+            predictable_variance=covariance.quadratic(gradient),
+        )
+        return replace(rebuilt, transform=derived.transform)
+
+    @property
+    def _alpha(self) -> float:
+        return float(next(iter(self.estimates.values())).alpha)
+
+    def _curve(
+        self,
+        scale: Literal["risk", "survival"] = "risk",
+        *,
+        times: Sequence[float] | None = None,
+    ) -> Any:
+        if scale not in ("risk", "survival"):
+            raise ValueError(f"scale must be 'risk' or 'survival'; got {scale!r}")
+        if scale == "survival" and not self._single():
+            raise CapabilityError(
+                "this fit reports one cumulative incidence per cause, and 1 - one cause's "
+                "incidence is not event-free survival, which is 1 - the sum of the incidences.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Use scale='risk', or contrast() of the incidences of every cause for "
+                    "their sum."
+                ),
+            )
+        chosen = self.horizons if times is None else tuple(float(t) for t in times)
+        for time in chosen:
+            if time not in self.horizons:
+                self._refuse_untargeted_time(time)
+        single = self._single()
+        survival = scale == "survival"
+        bands = getattr(self.simultaneous, "bands", None)
+        reference = self.arms[0]
+        rows: list[dict[str, Any]] = []
+
+        def row(name: str, arm: str, cause: str, time: float, level: bool) -> dict[str, Any]:
+            estimate = self.estimates[name]
+            low, high = estimate.ci
+            band = None if bands is None else bands.get(name)
+            psi = estimate.psi
+            if survival:
+                if level:
+                    psi, low, high = 1.0 - psi, 1.0 - high, 1.0 - low
+                    band = None if band is None else (1.0 - band[1], 1.0 - band[0])
+                else:
+                    psi, low, high = -psi, -high, -low
+                    band = None if band is None else (-band[1], -band[0])
+            estimand = name
+            if survival and level:
+                estimand = name.replace("risk_regimen[", "survival_regimen[", 1)
+            out: dict[str, Any] = {"estimand": estimand, "parameter": name, "arm": arm}
+            if not single:
+                out["cause"] = cause
+            out.update(
+                time=time,
+                psi=float(psi),
+                std_err=estimate.std_error,
+                ci_lower=float(low),
+                ci_upper=float(high),
+            )
+            if bands is not None:
+                out["band_lower"] = None if band is None else float(band[0])
+                out["band_upper"] = None if band is None else float(band[1])
+            out.update(
+                scale="level" if level else "difference",
+                view=scale,
+                support=estimate.support.label,
+            )
+            return out
+
+        for arm in self.arms:
+            for cause in self.causes:
+                for time in chosen:
+                    name = level_name(arm, None if single else cause, time)
+                    rows.append(row(name, arm, cause, time, True))
+        for treated in self.arms[1:]:
+            for cause in self.causes:
+                for time in chosen:
+                    name = contrast_name(
+                        "ate_regimen", treated, reference, None if single else cause, time
+                    )
+                    rows.append(row(name, f"{treated} vs {reference}", cause, time, False))
+        columns = list(rows[0])
+        return emit_frame({key: [r[key] for r in rows] for key in columns}, backend=self.backend)
+
+    def _contrast(
+        self,
+        function: Callable[[FloatArray], float],
+        names: Sequence[str],
+        *,
+        name: str | None = None,
+        scale: Scale = "difference",
+        gradient: Callable[[FloatArray], FloatArray] | None = None,
+        transform: Transform | None = None,
+    ) -> ParameterEstimate:
+
+        def run(estimates: Mapping[str, ParameterEstimate]) -> ParameterEstimate:
+            return smooth_contrast(
+                estimates,
+                function,
+                names,
+                n=self.n,
+                alpha=self._alpha,
+                name=name,
+                scale=scale,
+                gradient=gradient,
+                transform=transform,
+            )
+
+        derived = self._derive(names, run)
+        support = combine_support(
+            [self._contrast_support, *(self.estimates[key].support for key in names)]
+        )
+        return replace(derived, support=support)
+
+    def _ratio(
+        self,
+        numerator: str,
+        denominator: str,
+        *,
+        kind: Literal["rr", "or"] = "rr",
+        view: Literal["risk", "survival"] = "risk",
+        name: str | None = None,
+    ) -> ParameterEstimate:
+        if kind not in ("rr", "or"):
+            raise ValueError(f"kind must be 'rr' or 'or'; got {kind!r}")
+        if view not in ("risk", "survival"):
+            raise ValueError(f"view must be 'risk' or 'survival'; got {view!r}")
+        index = self._risk_index()
+        for given in (numerator, denominator):
+            if given not in index:
+                untargeted = self._untargeted_risk(given)
+                if untargeted is not None:
+                    self._refuse_untargeted_time(untargeted)
+        top, bottom = index.get(numerator), index.get(denominator)
+        if top is None or bottom is None or top[1:] != bottom[1:] or top[0] == bottom[0]:
+            raise CapabilityError(
+                "ratio() compares the two arms' risks at one cause and one time, and "
+                f"{numerator!r} and {denominator!r} are not such a pair.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=("For any other smooth function of reported estimates use contrast()."),
+            )
+        if view == "survival" and not self._single():
+            raise CapabilityError(
+                "this fit reports one cumulative incidence per cause, and 1 - one cause's "
+                "incidence is not event-free survival, which is 1 - the sum of the incidences.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative="Drop view=, or use contrast() of the incidences of every cause.",
+            )
+        prefix = "survival_" if view == "survival" else ""
+        label = name or contrast_name(f"{prefix}{kind}_regimen", top[0], bottom[0], top[1], top[2])
+
+        def run(estimates: Mapping[str, ParameterEstimate]) -> ParameterEstimate:
+            return ratio_contrast(
+                estimates,
+                numerator,
+                denominator,
+                kind=kind,
+                complement=view == "survival",
+                n=self.n,
+                alpha=self._alpha,
+                name=label,
+            )
+
+        derived = self._derive((numerator, denominator), run)
+        if kind == "rr" and view == "risk":
+            # The fit's own risk ratio of this pair, in either order, labelled when it was built.
+            for first, second in ((top, bottom), (bottom, top)):
+                stored = self.estimates.get(
+                    contrast_name("rr_regimen", first[0], second[0], first[1], first[2])
+                )
+                if stored is not None:
+                    return replace(derived, support=stored.support)
+        support = combine_support(
+            [
+                self._ratio_support,
+                self.estimates[numerator].support,
+                self.estimates[denominator].support,
+            ]
+        )
+        return replace(derived, support=support)
+
+    def _frame(self) -> Any:
+        rows = [estimate.to_dict() for estimate in self.estimates.values()]
+        columns: list[str] = []
+        for row in rows:
+            columns.extend(key for key in row if key not in columns)
+        return emit_frame(
+            {key: [row.get(key) for row in rows] for key in columns}, backend=self.backend
+        )
+
+
 @dataclass(frozen=True)
-class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
+class ContinuousSurvivalResult(_TargetedRisks, Mapping[str, ParameterEstimate]):
     """The targeted risks of a continuous-time survival fit.
 
     Behaves as a mapping from parameter name to
@@ -1260,6 +1565,9 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
     #: The method identity of the result.
     fitted_method: ClassVar[str] = "tmle"
 
+    def _predictable(self) -> PredictableCovariance | None:
+        return self.predictable
+
     def __getitem__(self, name: str) -> ParameterEstimate:
         return self.estimates[name]
 
@@ -1297,53 +1605,6 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         return int(self.record.n_folds)
 
     # ----------------------------------------------------------- reading the fit
-
-    def _single(self) -> bool:
-        return len(self.causes) == 1
-
-    def _arm(self, arm: str, what: str) -> int:
-        if arm not in self.arms:
-            raise ValueError(f"{what}: unknown arm {arm!r}; this fit compares {list(self.arms)}")
-        return self.arms.index(arm)
-
-    def _risk_index(self) -> dict[str, tuple[str, str | None, float]]:
-        """``name -> (arm, cause, time)`` of every reported risk, composed forward."""
-        single = self._single()
-        return {
-            level_name(arm, None if single else cause, time): (
-                arm,
-                None if single else cause,
-                time,
-            )
-            for arm in self.arms
-            for cause in self.causes
-            for time in self.horizons
-        }
-
-    def _refuse_untargeted_time(self, time: float) -> None:
-        """Refusal C2: a time that is not a target time."""
-        raise CapabilityError(
-            f"{_t(time)} is not a target time, and a risk between target times solves no "
-            f"score equation of the fit; the target times are {list(self.horizons)}.",
-            reason=RefusalReason.API_REDIRECTION,
-            alternative=f"Add {_t(time)} to horizons= and fit again.",
-        )
-
-    def _untargeted_risk(self, name: str) -> float | None:
-        """The time of ``name`` when it names a risk of this fit at an untargeted time."""
-        match = _LEVEL_PATTERN.match(name)
-        if match is None:
-            return None
-        try:
-            time = float(match.group("time"))
-        except ValueError:
-            return None
-        single = self._single()
-        for arm in self.arms:
-            for cause in self.causes:
-                if level_name(arm, None if single else cause, time) == name:
-                    return None if time in self.horizons else time
-        return None
 
     def curve(
         self,
@@ -1422,76 +1683,7 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         >>> bool((curve["psi"][:4] == 1 - fit.curve()["psi"][:4]).all())
         True
         """
-        if scale not in ("risk", "survival"):
-            raise ValueError(f"scale must be 'risk' or 'survival'; got {scale!r}")
-        if scale == "survival" and not self._single():
-            raise CapabilityError(
-                "this fit reports one cumulative incidence per cause, and 1 - one cause's "
-                "incidence is not event-free survival, which is 1 - the sum of the incidences.",
-                reason=RefusalReason.DIFFERENT_ESTIMAND,
-                alternative=(
-                    "Use scale='risk', or contrast() of the incidences of every cause for "
-                    "their sum."
-                ),
-            )
-        chosen = self.horizons if times is None else tuple(float(t) for t in times)
-        for time in chosen:
-            if time not in self.horizons:
-                self._refuse_untargeted_time(time)
-        single = self._single()
-        survival = scale == "survival"
-        bands = getattr(self.simultaneous, "bands", None)
-        reference, treated = self.arms
-        rows: list[dict[str, Any]] = []
-
-        def row(name: str, arm: str, cause: str, time: float, level: bool) -> dict[str, Any]:
-            estimate = self.estimates[name]
-            low, high = estimate.ci
-            band = None if bands is None else bands.get(name)
-            psi = estimate.psi
-            if survival:
-                if level:
-                    psi, low, high = 1.0 - psi, 1.0 - high, 1.0 - low
-                    band = None if band is None else (1.0 - band[1], 1.0 - band[0])
-                else:
-                    psi, low, high = -psi, -high, -low
-                    band = None if band is None else (-band[1], -band[0])
-            estimand = name
-            if survival and level:
-                estimand = name.replace("risk_regimen[", "survival_regimen[", 1)
-            out: dict[str, Any] = {"estimand": estimand, "parameter": name, "arm": arm}
-            if not single:
-                out["cause"] = cause
-            out.update(
-                time=time,
-                psi=float(psi),
-                std_err=estimate.std_error,
-                ci_lower=float(low),
-                ci_upper=float(high),
-            )
-            if bands is not None:
-                out["band_lower"] = None if band is None else float(band[0])
-                out["band_upper"] = None if band is None else float(band[1])
-            out.update(
-                scale="level" if level else "difference",
-                view=scale,
-                support=estimate.support.label,
-            )
-            return out
-
-        for arm in self.arms:
-            for cause in self.causes:
-                for time in chosen:
-                    name = level_name(arm, None if single else cause, time)
-                    rows.append(row(name, arm, cause, time, True))
-        for cause in self.causes:
-            for time in chosen:
-                name = contrast_name(
-                    "ate_regimen", treated, reference, None if single else cause, time
-                )
-                rows.append(row(name, f"{treated} vs {reference}", cause, time, False))
-        columns = list(rows[0])
-        return emit_frame({key: [r[key] for r in rows] for key in columns}, backend=self.backend)
+        return self._curve(scale, times=times)
 
     def contrast(
         self,
@@ -1535,72 +1727,9 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         ParameterEstimate
             The derived estimate.
         """
-
-        def run(estimates: Mapping[str, ParameterEstimate]) -> ParameterEstimate:
-            return smooth_contrast(
-                estimates,
-                function,
-                names,
-                n=self.n,
-                alpha=self._alpha,
-                name=name,
-                scale=scale,
-                gradient=gradient,
-                transform=transform,
-            )
-
-        derived = self._derive(names, run)
-        support = combine_support(
-            [CONTRAST_SUPPORT, *(self.estimates[key].support for key in names)]
+        return self._contrast(
+            function, names, name=name, scale=scale, gradient=gradient, transform=transform
         )
-        return replace(derived, support=support)
-
-    def _derive(
-        self,
-        names: Sequence[str],
-        run: Callable[[Mapping[str, ParameterEstimate]], ParameterEstimate],
-    ) -> ParameterEstimate:
-        """A derived estimate from ``run``, under the fit's variance.
-
-        Under ``variance="influence_curve"`` this is ``run`` of the stored estimates.  Under
-        ``"switched"``, ``run`` builds the derived curve from the inputs' influence-curve
-        versions, and the same ``run`` on their gradients over the targeted levels gives the
-        derived gradient :math:`h`: the delta method is linear in the curves at fixed values,
-        so the derived curve is the levels' curves times :math:`h`.  The derived estimate then
-        reports the switched variance of :math:`h^\\top \\hat\\Sigma_{pv} h`, with the switch
-        read on its own curve.
-        """
-        chosen = [self.estimates[key] for key in names]
-        covariance = self.predictable
-        if covariance is None or not any(e.switched is not None for e in chosen):
-            return run(self.estimates)
-        view = {key: _influence_view(self.estimates[key]) for key in names}
-        derived = run(view)
-        rows = {key: replace(view[key], influence_curve=covariance.gradients[key]) for key in names}
-        gradient = run(rows).influence_curve
-        rebuilt = make_estimate(
-            derived.name,
-            derived.psi,
-            derived.influence_curve,
-            n=derived.n,
-            rule_widened=derived.rule_widened,
-            scale=derived.scale,
-            alpha=derived.alpha,
-            log_psi=derived.log_psi,
-            covariance_rule="switched",
-            inference=derived.inference,
-            reference_df=derived.reference_df,
-            support=derived.support,
-            bounds=derived.bounds,
-            outcome_family=derived.outcome_family,
-            range_interval=derived.range_interval,
-            predictable_variance=covariance.quadratic(gradient),
-        )
-        return replace(rebuilt, transform=derived.transform)
-
-    @property
-    def _alpha(self) -> float:
-        return float(next(iter(self.estimates.values())).alpha)
 
     def ratio(
         self,
@@ -1691,59 +1820,7 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         >>> bool(np.isclose(rr.psi, fit["rr_regimen[1 vs 0 @ t=2]"].psi))
         True
         """
-        if kind not in ("rr", "or"):
-            raise ValueError(f"kind must be 'rr' or 'or'; got {kind!r}")
-        if view not in ("risk", "survival"):
-            raise ValueError(f"view must be 'risk' or 'survival'; got {view!r}")
-        index = self._risk_index()
-        for given in (numerator, denominator):
-            if given not in index:
-                untargeted = self._untargeted_risk(given)
-                if untargeted is not None:
-                    self._refuse_untargeted_time(untargeted)
-        top, bottom = index.get(numerator), index.get(denominator)
-        if top is None or bottom is None or top[1:] != bottom[1:] or top[0] == bottom[0]:
-            raise CapabilityError(
-                "ratio() compares the two arms' risks at one cause and one time, and "
-                f"{numerator!r} and {denominator!r} are not such a pair.",
-                reason=RefusalReason.API_REDIRECTION,
-                alternative=("For any other smooth function of reported estimates use contrast()."),
-            )
-        if view == "survival" and not self._single():
-            raise CapabilityError(
-                "this fit reports one cumulative incidence per cause, and 1 - one cause's "
-                "incidence is not event-free survival, which is 1 - the sum of the incidences.",
-                reason=RefusalReason.DIFFERENT_ESTIMAND,
-                alternative="Drop view=, or use contrast() of the incidences of every cause.",
-            )
-        prefix = "survival_" if view == "survival" else ""
-        label = name or contrast_name(f"{prefix}{kind}_regimen", top[0], bottom[0], top[1], top[2])
-
-        def run(estimates: Mapping[str, ParameterEstimate]) -> ParameterEstimate:
-            return ratio_contrast(
-                estimates,
-                numerator,
-                denominator,
-                kind=kind,
-                complement=view == "survival",
-                n=self.n,
-                alpha=self._alpha,
-                name=label,
-            )
-
-        derived = self._derive((numerator, denominator), run)
-        if kind == "rr" and view == "risk":
-            # The fit's own risk ratio of this pair, in either order, labelled when it was built.
-            for first, second in ((top, bottom), (bottom, top)):
-                stored = self.estimates.get(
-                    contrast_name("rr_regimen", first[0], second[0], first[1], first[2])
-                )
-                if stored is not None:
-                    return replace(derived, support=stored.support)
-        support = combine_support(
-            [RATIO_SUPPORT, self.estimates[numerator].support, self.estimates[denominator].support]
-        )
-        return replace(derived, support=support)
+        return self._ratio(numerator, denominator, kind=kind, view=view, name=name)
 
     def _restricted(
         self, head: str, arm: str, tau: float, cause: str | None, versus: str | None
@@ -2080,13 +2157,7 @@ class ContinuousSurvivalResult(Mapping[str, ParameterEstimate]):
         dataframe
             The estimates with their standard errors and intervals.
         """
-        rows = [estimate.to_dict() for estimate in self.estimates.values()]
-        columns: list[str] = []
-        for row in rows:
-            columns.extend(key for key in row if key not in columns)
-        return emit_frame(
-            {key: [row.get(key) for row in rows] for key in columns}, backend=self.backend
-        )
+        return self._frame()
 
     # ------------------------------------------------------------- assessment
 

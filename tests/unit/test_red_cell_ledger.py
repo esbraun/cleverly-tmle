@@ -109,11 +109,21 @@ OWNED_EXCEPTION_KEY = RedKey(
     "truth",
     "cleverly-drtmle-foldwise/stratified_both_correct/ey[1][V=2]",
 )
+#: The two hook audits that the one lost fit of continuous-time-longitudinal leaves red, admitted
+#: by exception and accepted as valid.
+LOST_FIT_KEYS = tuple(
+    RedKey("continuous-time-longitudinal", "accounting", f"hook/{leg}")
+    for leg in ("calibration rule", "shrunk-SE control")
+)
 #: Each exception and the dated written decision of the project owner that granted it.
-EXCEPTION_DECISIONS = {ACCEPTED_KEY: "2026-11-10", OWNED_EXCEPTION_KEY: "2026-11-13"}
+EXCEPTION_DECISIONS = {
+    ACCEPTED_KEY: "2026-11-10",
+    OWNED_EXCEPTION_KEY: "2026-11-13",
+    **dict.fromkeys(LOST_FIT_KEYS, "2026-11-26"),
+}
 
 
-def test_the_exceptions_admit_exactly_the_two_decided_rows() -> None:
+def test_the_exceptions_admit_exactly_the_decided_rows() -> None:
     assert set(ACCEPTED_BY_EXCEPTION) == set(EXCEPTION_DECISIONS)
     for key, date in EXCEPTION_DECISIONS.items():
         entry = ACCEPTED_BY_EXCEPTION[key]
@@ -125,14 +135,27 @@ def test_the_selective_row_is_unowned_and_the_stratified_row_keeps_its_owner() -
     assert OWNERS[OWNED_EXCEPTION_KEY] == "X8-drtmle-small-stratum"
 
 
-@pytest.mark.parametrize("key", sorted(EXCEPTION_DECISIONS), ids=lambda key: key.slug)
+def test_the_lost_fit_rows_are_unowned_and_red_on_the_lost_fit_alone(rows: list[RedRow]) -> None:
+    """Accepted as valid, so no owner; each is red by its failure accounting and nothing else."""
+    for key in LOST_FIT_KEYS:
+        assert key not in OWNERS
+        row = next(r for r in rows if r.key == key)
+        assert row.fails_by == "failure accounting: worst case fails"
+        assert row.measured == "failing rows 1, failures 1 of 3200"
+
+
+def _exception_id(key: RedKey) -> str:
+    return key.slug if key.kind != "accounting" else f"{key.slug}/{key.key}"
+
+
+@pytest.mark.parametrize("key", sorted(EXCEPTION_DECISIONS), ids=_exception_id)
 def test_the_exception_row_is_gated_and_still_red(rows: list[RedRow], key: RedKey) -> None:
     """Ratchet 1: the cell turns green, or the study turns `reporting`, and the entry goes."""
     assert key in {row.key for row in rows}, "the cell is green; remove the exception"
     assert POLICIES[key.slug] == "gated", "the study is reporting; remove the exception"
 
 
-@pytest.mark.parametrize("key", sorted(EXCEPTION_DECISIONS), ids=lambda key: key.slug)
+@pytest.mark.parametrize("key", sorted(EXCEPTION_DECISIONS), ids=_exception_id)
 def test_the_exception_covers_only_the_accepted_run(key: RedKey) -> None:
     """Ratchet 2: a rerun writes another replicates.parquet, and the entry fails until removed."""
     import json

@@ -2777,7 +2777,7 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
             "0.9459"
         ),
     ),
-    "G29.g1": ("X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",),
+    "G29.g1": ("X45-finite-sample: coverage 0.9305 to 0.9552, SE ratio 0.9259 to 1.0000",),
     "G40.tau3": (
         "mtp-pricing-learned-density: coverage 0.9383 to 0.9635, SE ratio 1.0000 to 1.0867",
     ),
@@ -5608,8 +5608,10 @@ def _gformula_rows() -> list[SupportRow]:
     data and two arms at three nodes.
 
     A known rule is its own regimen kind on this engine (:func:`~cleverly._support.regimen_kinds`),
-    so only ``G1`` and ``G4``, whose cells include a rule, list it.  ``G2``/``G5`` measure fixed
-    plans, a stochastic policy and a tilt, and leave a rule fit on that law experimental.
+    so a row lists it only when its cells include a rule: ``G1`` and ``G4`` (``rule``,
+    ``rule_dose``), and ``G2``/``G5``, whose rule cells read a threshold of a continuous covariate
+    and a categorical covariate.  ``G3`` measures no rule, so a rule fit on that law stays
+    experimental.
     """
     study = ["parametric-gformula"]
     glm = {"outcome": GLM, "treatment": GLM, "censoring": GLM}
@@ -5627,16 +5629,16 @@ def _gformula_rows() -> list[SupportRow]:
         long_row(
             "G29.g2_g5",
             study,
-            regimens=("static", "stochastic", "tilt"),
+            regimens=("static", "rule", "stochastic", "tilt"),
             outcome=CONTINUOUS,
             missing=("complete",),
             engine="parametric_gformula",
             treatment=three,
             learners=glm,
             cells=[
-                *_gformula_cells("g2", ("contrast", "policy_b", "treat_all", "treat_none")),
+                *_gformula_cells("g2", ("contrast", "policy_b", "rule", "treat_all", "treat_none")),
                 *_gformula_cells(
-                    "g5", ("contrast", "odds_x2", "treat_all", "treat_none"), contrast=None
+                    "g5", ("contrast", "odds_x2", "rule", "treat_all", "treat_none"), contrast=None
                 ),
                 *(
                     f"ice_necessity/pair_g2_{plan}__nice"
@@ -7333,6 +7335,12 @@ EXEMPT_STUDIES: Final[Mapping[str, str]] = {
         "reads: the continuous-time fit has no node structure to classify. "
         "cleverly.survival.result.continuous_survival_support, not a support row, records the "
         "numbers of causes the study licenses (MEASURED_CAUSES)."
+    ),
+    "continuous-time-longitudinal": (
+        "It measures ContinuousLongitudinalTMLE, which no support key reads: the continuous-time "
+        "fit has no node structure to classify. "
+        "cleverly.survival.longitudinal_result.continuous_longitudinal_support, not a support "
+        "row, records the configurations the study licenses."
     ),
     "continuous-survival-variance": (
         "It measures the default switched variance of ContinuousSurvivalTMLE, which no support "

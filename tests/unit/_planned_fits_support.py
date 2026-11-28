@@ -486,10 +486,13 @@ def standalone_engines() -> set[type]:
 
     ``StructuralNestedMean`` is fitted directly; its preview prices its refits for
     :func:`cleverly.validation.planned_refits`, so its ``fit`` is a previewed entry too.
+    ``ContinuousLongitudinalTMLE`` is fitted directly as well; its preview bounds its fits
+    from above, and its refit and the refit's preview refuse.
     """
     from cleverly.longitudinal.structural import StructuralNestedMean
+    from cleverly.survival.longitudinal import ContinuousLongitudinalTMLE
 
-    return {StructuralNestedMean}
+    return {StructuralNestedMean, ContinuousLongitudinalTMLE}
 
 
 @functools.cache

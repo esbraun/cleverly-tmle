@@ -197,7 +197,7 @@ print(result.to_frame()[["estimand", "psi", "ci_lower", "ci_upper", "support"]])
 ```
 
 This fit reads `supported`. [Read the support
-label](../user-guide/results-assessment.md#read-the-support-label) says how to find the study behind
+label](../user-guide/reading-output.md#read-the-support-label) says how to find the study behind
 a label.
 
 ## Check the fit and its sensitivity
@@ -333,7 +333,7 @@ scikit-learn model fits either slot. When you leave out both learners, the packa
 combines three scikit-learn models (gradient boosting, a random forest and a lasso), weighted by
 how well each predicts on held-out folds. The first print, `planned_fits`, counts that work before
 you start: 360 candidate fits for this question, which often take half a minute to two minutes
-([count the model fits](../user-guide/methods-learners.md#count-the-model-fits-before-a-long-run)).
+([count the model fits](../user-guide/run-time-and-memory.md#count-the-model-fits-before-a-long-run)).
 
 ## Go deeper
 
@@ -376,7 +376,7 @@ one.
 - Read [data and study design](../user-guide/data-design.md) to map your columns to roles.
 - Read [point-treatment TMLE](../examples/point-treatment-tmle.ipynb) for an analysis with nonlinear
   helper models and flexible learners.
-- Use the [estimands and interventions guide](../user-guide/estimands.md) to choose a question.
+- Use the [estimands guide](../user-guide/topics/estimands.md) to choose a question.
 - Use the [methods and learners guide](../user-guide/methods-learners.md) before you change the
   default learners.
 - Read [what cleverly can estimate](../user-guide/capabilities.md) for the questions the package answers,

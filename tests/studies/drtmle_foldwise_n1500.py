@@ -87,7 +87,8 @@ from tests.studies.evidence.seeds import draw_replicate, replicate_seed, stream_
 from tests.studies.point_study_helpers import initial_estimates, primary_rows
 
 IMPLEMENTATION = foldwise.IMPLEMENTATION
-#: The primary phase's own seed, fresh: no registered study draws from it.
+#: The primary phase's own seed, fresh when declared.  ``small-sample-wald`` declared the same
+#: root later that day; it is the study that re-seeds (``tests/unit/test_study_seed_roots.py``).
 SEED = 2026111201
 #: Fresh entropy for every bootstrap of this record.
 RESAMPLING_SEED = 2026111211

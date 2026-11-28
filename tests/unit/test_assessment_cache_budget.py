@@ -774,6 +774,7 @@ _DRAWS = re.compile(r"(SeedSequence|default_rng|RandomState|check_random_state)\
 _MARKS = {
     "utils/random.py",
     "survival/engine.py",
+    "survival/longitudinal.py",
     "learners/crossfit.py",
     "longitudinal/estimator.py",
     "validation/simulation.py",
@@ -786,6 +787,7 @@ _MARKS = {
 _SAFE = {
     ("_curve_assessment.py", "default_rng(seed)"): "seed from _seed(), an int",
     ("survival/engine.py", "default_rng(seed)"): "seed resolved by _resolved_seed",
+    ("survival/longitudinal.py", "default_rng(self.seed)"): "seed resolved by _resolved_seed",
     ("survival/engine.py", "default_rng()"): "state set from the stored rng_state next line",
     (
         "utils/random.py",
@@ -947,6 +949,12 @@ _DIRECT_FITS = {
     "study.py": (6, "fit time"),
     "survival/cox.py": (2, "fit time and the refit truncation curve"),
     "survival/engine.py": (3, "fit time and the refit truncation curve"),
+    "survival/_longitudinal_nuisance.py": (6, "fit time; the engine refuses every refit"),
+    "survival/longitudinal.py": (1, "fit time; the engine refuses every refit"),
+    "datasets/two_decisions.py": (
+        2,
+        "learned_regimen_truth, the tutorial's truth of a fitted rule, not an assessment",
+    ),
     "validation/_band_placebo.py": (1, "refute, a refit"),
     "validation/_longitudinal_plasmode.py": (6, "refute, a refit"),
     "validation/_planned_refits.py": (

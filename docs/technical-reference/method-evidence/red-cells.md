@@ -20,13 +20,15 @@ The ledger reads each verdict column as a boolean. It refuses a table whose verd
 a blank or any other value, because a blank would otherwise read as a pass. The paired
 `reference_valid` column repeats the comparator's truth row, so the truth kind covers it.
 
-One red row is not on the ledger. The `s6_cv` truth row of
-[Adaptive TMLE under selective enrollment](adaptive-tmle-selective.md) belongs to a `gated` study,
-and it is accepted by a named exception (`ACCEPTED_BY_EXCEPTION` in
-`tests/studies/evidence/red_cells.py`). The test fails if the cell turns
-green or the study is rerun, and it admits no other row.
+Three red rows of `gated` studies are not on the ledger, each accepted by a named exception
+(`ACCEPTED_BY_EXCEPTION` in `tests/studies/evidence/red_cells.py`). One is the `s6_cv` truth row
+of [Adaptive TMLE under selective enrollment](adaptive-tmle-selective.md). The other two are the
+accounting rows of the calibration rule and the shrunk-SE control of
+[continuous-time longitudinal TMLE](continuous-time-longitudinal.md), which one lost fit of 3,200
+turns red although worst-case imputation of that fit keeps both readings. The test fails if a
+cell turns green or its study is rerun, and it admits no other row.
 
-The ledger reads verdict rows and accounting rows only. Thirteen study modules also define a `scientific_failures` hook.
+The ledger reads verdict rows and accounting rows only. Fourteen study modules also define a `scientific_failures` hook.
 The regeneration adds each hook's rows to the failures it gates or reports. These hooks audit
 fits and publish no verdict cell, so the ledger does not read them.
 
@@ -45,6 +47,7 @@ fits and publish no verdict cell, so the ledger does not read them.
 | [Adaptive TMLE under selective enrollment](adaptive-tmle-selective.md) | `gated` | the K6 control verdicts | `controls.csv`. The test requires every row to pass |
 | [collaborative TMLE of a risk curve](survival-ctmle.md) | `reporting` | the RMSE ratio gate of the risk of arm 1 at OR 15 against hazard `LTMLE` with the full treatment model, when its upper bound exceeds 1 | the study page and `rmse-comparison.csv` |
 | [policy-weighted variance for heavy density ratios](mtp-policy-variance.md) | `gated` | the coverage-floor controls of the tail-size twins that do not fail the 0.90 floor | `coverage-controls.csv`. The test requires every row to pass |
+| [continuous-time longitudinal TMLE](continuous-time-longitudinal.md) | `gated` | the `mechanism_correct` primary rule, the plug-in control, the calibration rule and the shrunk-SE control. A routed exposed row leaves its gate | `mechanism-correct.csv`, `calibration.csv` and `exposed-rows.csv`. The test requires every row to pass, and `failure-accounting.csv` counts each lost fit against the audits it held |
 
 `tests/unit/test_red_cell_ledger.py` fails when a study module defines a hook that this table
 does not list.
@@ -354,7 +357,7 @@ same text as the "measured" column of its study page.
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/hajek_x_contrast__main_terms` | control | its own rule | bias 0.1306 to 0.1344, margin 0.0175, coverage 0.5072 to 0.5348, SE ratio 0.9970 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/ht_x_contrast__main_terms` | control | its own rule | bias 0.1637 to 0.1682, margin 0.0208, coverage 0.4709 to 0.4984, SE ratio 0.9988 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/ice_x_contrast__main_terms` | control | its own rule | bias 0.1075 to 0.1111, margin 0.0162, coverage 0.5952 to 0.6221, SE ratio 1.0002 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
-| [parametric g-formula](parametric-gformula.md) | property | `interval_calibration/nice_g1_treat_all__correctly_specified` | positive | its own rule | coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000 | [`X45-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [parametric g-formula](parametric-gformula.md) | property | `interval_calibration/nice_g1_treat_all__correctly_specified` | positive | its own rule | coverage 0.9305 to 0.9552, SE ratio 0.9259 to 1.0000 | [`X45-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [outcome-adaptive per-arm C-TMLE](outcome-adaptive-per-arm-c-tmle.md) | truth | `cleverly-ctmle-oat-per-arm/binary_active/ate` | cleverly-ctmle-oat-per-arm | its truth gate | bias -0.0021 to 0.0031, coverage 0.9087, SE ratio 0.8500 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive per-arm C-TMLE](outcome-adaptive-per-arm-c-tmle.md) | truth | `cleverly-ctmle-oat-per-arm/binary_active/ey0` | cleverly-ctmle-oat-per-arm | its truth gate | bias -0.0024 to 0.0013, coverage 0.9025, SE ratio 0.8526 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive per-arm C-TMLE](outcome-adaptive-per-arm-c-tmle.md) | truth | `cleverly-ctmle-oat-per-arm/binary_active/ey1` | cleverly-ctmle-oat-per-arm | its truth gate | bias -0.0019 to 0.0018, coverage 0.9062, SE ratio 0.8463 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |

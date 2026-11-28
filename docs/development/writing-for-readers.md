@@ -34,6 +34,13 @@ result to a manager who asks "so did it work, and how sure are we?". They skim. 
 and the first sentence after each output, and they return to the details only when something looks
 wrong.
 
+The user guide is one step more technical than the tutorials. Its headings and prose name the
+stages of an analysis with their standard terms: identification, estimand, estimation, inference,
+diagnostics, refutation and sensitivity analysis. Define each term in plain words where it first
+appears on a page. Every other replacement in [library words](#library-words-and-their-plain-replacements)
+still applies there. The tutorials use plain phrases for all of these terms except refutation:
+both the guide and the tutorials head that section "Refutation".
+
 ## Rules
 
 | # | rule | why |
@@ -112,7 +119,7 @@ column says the same thing accurately in plain words. The API name may follow in
 | double robustness | "the point estimate stays on target in large samples if either the outcome model or the treatment model is right. The interval needs both to be reasonably accurate" |
 | cross-fitting, CV-TMLE, folds | "each row's predictions come from models trained without that row, like out-of-fold predictions in cross-validation" |
 | truncation, `q_bounds` | "a cap on extreme weights"; "the known range of the outcome (0 to 1 here)" |
-| refute, placebo, `random_common_cause`, subset, plasmode, generated outcome | "try to break the result": "shuffle the treatment, so the estimate should be about zero"; "add a column of pure noise, so the estimate should barely move"; "refit on random 70% samples, so the spread should match what the standard error predicts for samples of that size"; "replace the outcome with one where we know the answer" |
+| refute, placebo, `random_common_cause`, subset, plasmode, generated outcome | head the section "Refutation", and say what each check does: "shuffle the treatment, so the estimate should be about zero"; "add a column of pure noise, so the estimate should barely move"; "refit on random 70% samples, so the spread should match what the standard error predicts for samples of that size"; "replace the outcome with one where we know the answer" |
 | rung, `L0`, `L1`, `L2`, verdict, registry, `VERDICT_EVIDENCE`, `Covered:` | "`cleverly` gives a pass or fail only when a simulation study or an exact reference backs that check for this kind of fit. Here neither does, so it shows the numbers and you judge them". Where an `L1` reading prints, say what that level reads on that page |
 | sensitivity analysis, robustness value, `cf_y`, `cf_d`, $\nu^2$, Riesz representer | "how strong would a missing confounder have to be to erase the effect?" Put the symbols in a Details block |
 | benchmark | for the omitted-variable bound: "a confounder as strong as `discharge_risk` could move the estimate at most this far, under the bound's assumptions". For a refit that drops a covariate: "dropping this variable moves the estimate this far; that is a comparison, not a bound" |

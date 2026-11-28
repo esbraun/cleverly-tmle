@@ -12,6 +12,10 @@ family                         cells, size and replications
                                ``n_draws`` 10, :data:`CALIBRATION_REPLICATES` of each law, and the
                                two derived controls of each label (a shrunken standard error and
                                added noise)
+                               The known rules of ``G2`` and ``G5`` (:data:`study.RULE_LABELS`)
+                               are calibration labels of their own fit sets, ``rule_g2`` and
+                               ``rule_g5``, with :data:`RULE_REPLICATES` each, so no other cell
+                               of the law moves
 ``root_n_and_efficiency``      the four contrast labels of :data:`study.LADDER_LABELS` at n = 2,000, 4,000
                                and 8,000, :data:`LADDER_REPLICATES` each
 ``monte_carlo_accounting``     the levels of :data:`study.MC_LABELS` at ``n_draws`` 1.  The positive cell
@@ -102,6 +106,10 @@ CALIBRATION_REPLICATES: dict[str, int] = {
     "G4": 2_400,
     "G5": 2_400,
 }
+#: The replicates of each rule fit set (``rule_g2``, ``rule_g5``): the smallest multiple of 400
+#: at which the rule label passes the calibration rule with chance at least 0.95 at its SE ratio
+#: shrunk toward the other calibration labels (``tests/unit/test_parametric_gformula_design.py``).
+RULE_REPLICATES: dict[str, int] = {"G2": 2_400, "G5": 2_400}
 LADDER_REPLICATES = 1_000
 #: The replicates of each law's ``n_draws`` 1 fit set: the smallest multiple of 400 at which every
 #: positive ``n_draws_1`` label of the law passes the calibration rule with chance at least 0.95.
@@ -140,6 +148,8 @@ NOISE_SD: dict[str, float] = {
     "nice_g5_treat_none": 3.175,
     "nice_g5_odds_x2": 2.509,
     "nice_g5_contrast": 3.873,
+    "nice_g2_rule": 5.517,
+    "nice_g5_rule": 3.623,
 }
 # ------------------------------------------------------------------------------ the truths
 
@@ -147,6 +157,10 @@ NOISE_SD: dict[str, float] = {
 def _targets() -> dict[str, tuple[str, float]]:
     out: dict[str, tuple[str, float]] = {}
     for law, keys in study.KEYS.items():
+        truth = study.truths(law)
+        for key, name in keys.items():
+            out[study.label_of(law, key)] = (name, float(truth[name]))
+    for law, keys in study.RULE_KEYS.items():
         truth = study.truths(law)
         for key, name in keys.items():
             out[study.label_of(law, key)] = (name, float(truth[name]))
@@ -173,6 +187,9 @@ FIT_SETS: dict[str, tuple[str, int, int]] = {
     **{
         f"calibration_{law.lower()}": (law, CALIBRATION_N, CALIBRATION_REPLICATES[law])
         for law in study.LAWS
+    },
+    **{
+        f"rule_{law.lower()}": (law, CALIBRATION_N, RULE_REPLICATES[law]) for law in study.RULE_KEYS
     },
     **{
         f"accounting_{law.lower()}": (law, CALIBRATION_N, ACCOUNTING_REPLICATES[law])
@@ -284,6 +301,12 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
         study.require_status(result, _names(labels))
         if law == "G4":
             _check_dose_reliance(result)
+        for label in labels:
+            add("interval_calibration", f"{label}__correctly_specified", "positive", label, result)
+    elif kind == "rule":
+        labels = [study.label_of(law, key) for key in study.RULE_KEYS[law]]
+        result = study.fit("nice", law, frame, seed=seed, rule_fit=True)
+        study.require_status(result, _names(labels))
         for label in labels:
             add("interval_calibration", f"{label}__correctly_specified", "positive", label, result)
     elif kind == "ladder":
@@ -427,6 +450,7 @@ def _cells_and_fit_sets() -> list[tuple[PropertyCell, str]]:
 
     for label in study.CALIBRATION_LABELS:
         law = label.split("_")[1].upper()
+        owner = "rule" if label in study.RULE_LABELS else "calibration"
         for kind, role in (
             ("correctly_specified", "positive"),
             ("shrunken_se_control", "control"),
@@ -436,7 +460,7 @@ def _cells_and_fit_sets() -> list[tuple[PropertyCell, str]]:
                 "interval_calibration",
                 f"{label}__{kind}",
                 role,
-                f"calibration_{law.lower()}",
+                f"{owner}_{law.lower()}",
                 label,
             )
     for label in study.LADDER_LABELS:

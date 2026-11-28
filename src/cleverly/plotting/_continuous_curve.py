@@ -1,7 +1,8 @@
 """The targeted risks of a continuous-time survival fit, at its target times only.
 
 :func:`~cleverly.plotting.curve` hands a
-:class:`~cleverly.survival.ContinuousSurvivalResult` here. The risks and their difference are
+:class:`~cleverly.survival.ContinuousSurvivalResult` or a
+:class:`~cleverly.survival.ContinuousLongitudinalResult` here. The risks and their difference are
 read from ``result.curve(scale)``, with each interval and band limit as that frame reports
 it, and the restricted means from ``result.rmst`` and ``result.rmtl``. A risk between two
 target times solves no score equation of the fit, so nothing is drawn between target times:
@@ -11,7 +12,7 @@ each estimate is a marker with its interval bar and band brackets.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from . import _core, _truth
 from ._curves import (
@@ -33,13 +34,17 @@ from ._curves import (
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from matplotlib.figure import Figure
 
+    from ..survival.longitudinal_result import ContinuousLongitudinalResult
     from ..survival.result import ContinuousSurvivalResult
+
+    #: The fits whose risks this module draws at their target times.
+    _Fit: TypeAlias = ContinuousSurvivalResult | ContinuousLongitudinalResult
 
 
 # --------------------------------------------------------------------------- readers
 
 
-def curve_frame(result: ContinuousSurvivalResult, view: str) -> Any:
+def curve_frame(result: _Fit, view: str) -> Any:
     """The fit's own curve on ``view``: the rows, intervals and band limits it reports."""
     return result.curve(scale=view)  # type: ignore[arg-type]
 
@@ -50,7 +55,7 @@ def _values(frame: Any, name: str) -> list[Any]:
 
 
 def curve_rows(
-    result: ContinuousSurvivalResult, view: str
+    result: _Fit, view: str
 ) -> tuple[list[_Point], dict[str, str | None], dict[str, tuple[float, float]] | None]:
     """Each row of ``result.curve(view)`` as a point, its cause, and its band limits."""
     frame = curve_frame(result, view)
@@ -95,7 +100,7 @@ def curve_rows(
 
 
 def bootstrap_limits(
-    result: ContinuousSurvivalResult, rows: Sequence[_Point], view: str
+    result: _Fit, rows: Sequence[_Point], view: str
 ) -> dict[str, tuple[float, float]]:
     """The bootstrap band's limits at each row, mirrored on the survival view as
     ``result.curve(scale='survival')`` mirrors the multiplier band's."""
@@ -112,9 +117,7 @@ def bootstrap_limits(
     return limits
 
 
-def restricted_rows(
-    result: ContinuousSurvivalResult, measure: str
-) -> tuple[list[_Point], dict[str, str | None]]:
+def restricted_rows(result: _Fit, measure: str) -> tuple[list[_Point], dict[str, str | None]]:
     """Each arm's restricted mean and their difference at every restricted horizon."""
     reference, treated = result.arms
     single = len(result.causes) == 1
@@ -171,7 +174,7 @@ def _y_words(measure: str, view: str, several: bool, units: str | None) -> tuple
 
 
 def curve(
-    result: ContinuousSurvivalResult,
+    result: _Fit,
     *,
     scale: str | None,
     measure: str,
@@ -239,14 +242,16 @@ def curve(
             f"this fit has {len(columns)} causes and the figure draws at most "
             f"{_core.MAX_SERIES} columns; pass cause= to draw one"
         )
-    reference, treated = result.arms
-    contrast = f"{treated} vs {reference}"
     order = list(result.arms)
+    reference = order[0]
     chosen = order if regimens is None else [str(name) for name in regimens]
     unknown = [name for name in chosen if name not in order]
     if unknown or not chosen or len(set(chosen)) != len(chosen):
         raise DataError(f"regimens= names arms of this fit, {order}; got {list(chosen)}")
-    contrasts = [contrast] if set(order) <= set(chosen) else []
+    # One difference per other arm against the reference (two arms on a baseline treatment,
+    # one per regime on a longitudinal fit), drawn when both of its arms are chosen.
+    compared = [arm for arm in order[1:] if arm in chosen] if reference in chosen else []
+    contrasts = [f"{arm} vs {reference}" for arm in compared]
     slot = {name: order.index(name) for name in order}
     name_of = (lambda s: str(labels.get(s, s))) if labels else str
     in_play = [
@@ -308,25 +313,26 @@ def curve(
         diff_ends: list[tuple[float, float, str, str]] = []
         if contrasts:
             diff = axes[ncols + j]
-            points = sorted(
-                (r for r in mine if not r.level and r.regimen == contrast), key=lambda r: r.x
-            )
-            color = _core.series_color(slot[treated])
-            _draw_line(
-                diff,
-                points,
-                color=color,
-                index=slot[treated],
-                dodge=(0, 1),
-                step=False,
-                limits=limits,
-                level=level,
-                band_text=band_text,
-                first=first,
-                spots=spots,
-                gap=gap,
-            )
-            diff_ends.append((points[-1].x, points[-1].psi, name_of(contrast), color))
+            for i, (arm, contrast) in enumerate(zip(compared, contrasts, strict=True)):
+                points = sorted(
+                    (r for r in mine if not r.level and r.regimen == contrast), key=lambda r: r.x
+                )
+                color = _core.series_color(slot[arm])
+                _draw_line(
+                    diff,
+                    points,
+                    color=color,
+                    index=slot[arm],
+                    dodge=(i, len(contrasts)),
+                    step=False,
+                    limits=limits,
+                    level=level,
+                    band_text=band_text,
+                    first=first,
+                    spots=spots,
+                    gap=gap,
+                )
+                diff_ends.append((points[-1].x, points[-1].psi, name_of(contrast), color))
             _core.reference_line(diff, 0.0, label="No difference" if j == 0 else "_nolegend_")
             _pad(diff, [0.0, *_extent(mine, contrasts, limits, level_rows=False)])
             if j == 0:
@@ -348,7 +354,7 @@ def curve(
                 _label_ends(
                     axes[ncols + j],
                     [(x + nudge, y, text, c) for x, y, text, c in diff_ends],
-                    pad=_truth_pad(truth, 1, gap),
+                    pad=_truth_pad(truth, len(contrasts), gap),
                 )
     _truth.draw(truth, spots, known=list(result.estimates))
     heading = {
@@ -379,7 +385,7 @@ def curve(
 
 
 def _notes(
-    result: ContinuousSurvivalResult,
+    result: _Fit,
     measure: str,
     view: str,
     rows: list[_Point],

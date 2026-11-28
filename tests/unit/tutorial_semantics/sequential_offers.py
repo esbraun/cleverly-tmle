@@ -689,7 +689,7 @@ def _check_cap(namespace: dict[str, Any]) -> None:
 
 
 def check_refits(namespace: dict[str, Any]) -> None:
-    """ "Try to break the result": the four refits of the win-back contrast."""
+    """Refutation: the four refits of the win-back contrast."""
     result, refutation = namespace["result"], namespace["refutation"]
     estimand = _key("win_back")
     assert refutation.estimand == estimand
@@ -734,7 +734,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
 
 
 def _check_refutation_limits(namespace: dict[str, Any]) -> None:
-    """ "Try to break the result": the stored output, and the checks that the page states it skips."""
+    """Refutation: the stored output, and the checks that the page states it skips."""
     result = namespace["result"]
     estimand = _key("win_back")
     assert "descriptive" in stored_output(NOTEBOOK, "refute")
