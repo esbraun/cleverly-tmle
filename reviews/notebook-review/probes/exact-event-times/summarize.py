@@ -26,11 +26,13 @@ def main() -> None:
         truth = (DEATH_FREE if fit == "one" else TRUTH)[estimand]
         psi, se = rows[f"{name}:psi"], rows[f"{name}:std_err"]
         covers = ((rows[f"{name}:ci_lower"] <= truth) & (truth <= rows[f"{name}:ci_upper"])).mean()
+        # A ratio's standard error is on the log scale, so compare it with the log estimates' SD.
         sd = psi.std(ddof=1)
+        se_sd = (np.log(psi) if estimand.startswith("rr_") else psi).std(ddof=1)
         lines.append(
             f"{fit} {estimand}: truth {truth:.4f}, bias {np.mean(psi - truth):.4f} (MC SE "
             f"{sd / np.sqrt(draws):.4f}), emp SD {sd:.4f}, mean SE {se.mean():.4f}, "
-            f"SE/SD {se.mean() / sd:.2f}, coverage {covers:.3f} "
+            f"SE/SD {se.mean() / se_sd:.2f}, coverage {covers:.3f} "
             f"(MC SE {np.sqrt(covers * (1 - covers) / draws):.3f})"
         )
     simple = rows["simple_readmission_difference"]

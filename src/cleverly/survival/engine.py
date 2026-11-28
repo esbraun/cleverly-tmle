@@ -470,6 +470,8 @@ class ContinuousSurvivalTMLE:
         Seed of the folds, the inner selection folds, the lasso members, any unseeded user
         learner, the off-grid diagnostic and the band.  ``None`` draws one seed per fit,
         which the result's stored estimator records.
+    run_id : str or None
+        A caller's label for the run, copied into the result's provenance.
     tilt : {"all", "factual"}
         ``"factual"`` reproduces the ``concrete`` 1.0.5 update, for the mutation control only.
     simultaneous : bool
@@ -545,6 +547,7 @@ class ContinuousSurvivalTMLE:
         tol: float | None = None,
         alpha: float = 0.05,
         random_state: int | None = None,
+        run_id: str | None = None,
         tilt: Literal["all", "factual"] = "all",
         simultaneous: bool = False,
         n_multiplier: int = DEFAULT_N_REPLICATES,
@@ -626,6 +629,7 @@ class ContinuousSurvivalTMLE:
         self.tol = tol
         self.alpha = float(alpha)
         self.random_state = random_state
+        self.run_id = run_id
         self.tilt: Literal["all", "factual"] = tilt
         self.simultaneous = bool(simultaneous)
         self.n_multiplier = int(n_multiplier)
@@ -968,7 +972,8 @@ class ContinuousSurvivalTMLE:
                 data.time, data.event, data.treatment, data.baseline
             ),
             fold_fingerprint=fold_fingerprint([initial.folds]),
-            random_state=seed,
+            random_state=self.random_state,
+            run_id=self.run_id,
         )
         result = ContinuousSurvivalResult(
             estimates=estimates,

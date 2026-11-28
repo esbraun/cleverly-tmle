@@ -782,6 +782,24 @@ def test_a_study_fit_stamps_its_protocol_and_the_engine_its_data_and_folds() -> 
     assert moved.provenance.data_fingerprint != plain.data_fingerprint
 
 
+def test_the_fold_digest_reads_the_folds_and_the_run_id_and_seed_are_the_callers() -> None:
+    from cleverly.provenance import fold_fingerprint
+
+    frame = _sample(n=300)
+    contrast = RegimeContrast({"treated": 1, "control": 0}, reference="control", horizons=[1.0])
+    question = CausalStudy(frame, design=_design_continuous()).identify(contrast)
+    fits = {}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for seed in (0, 1, None):
+            fits[seed] = question.estimate(random_state=seed, n_folds=2, run_id="job-42")
+    zero, one, unseeded = fits[0], fits[1], fits[None]
+    assert zero.provenance.fold_fingerprint == fold_fingerprint([zero.estimator._outer_folds])
+    assert zero.provenance.fold_fingerprint != one.provenance.fold_fingerprint
+    assert zero.provenance.run_id == "job-42"
+    assert unseeded.provenance.random_state is None
+
+
 def test_a_polars_frame_comes_back_as_polars_and_the_result_saves(tmp_path: Any) -> None:
     pl = pytest.importorskip("polars")
     import cleverly

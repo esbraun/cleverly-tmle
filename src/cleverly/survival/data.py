@@ -324,6 +324,7 @@ def continuous_kwargs(method: Any) -> dict[str, Any]:
         "multiplier_kind": inference.multiplier_kind,
         "band_scale": inference.band_scale,
         "random_state": method.runtime.random_state,
+        "run_id": method.runtime.run_id,
         # The walk's threads, and the bootstrap's worker processes; a study driver's processes
         # multiply them.
         "n_jobs": method.runtime.n_jobs,

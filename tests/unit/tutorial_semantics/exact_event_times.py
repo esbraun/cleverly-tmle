@@ -50,8 +50,10 @@ _QUOTED = (
     "two ate_regimen[offered vs not offered, readmission @ t=3]: truth -0.2125, bias 0.0007",
     "emp SD 0.0327, mean SE 0.0338, SE/SD 1.04",
     "one risk_regimen[offered @ t=3]: truth 0.2357",
-    "coverage 0.960 (MC SE 0.020)",
 )
+
+#: The probe row whose coverage the deaths reading quotes ("96 times"), and that coverage.
+_ONE_OFFERED = ("one risk_regimen[offered @ t=3]:", "coverage 0.960")
 
 #: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
 #: literal, then the code cell that prints it.
@@ -86,6 +88,9 @@ def _check_association(namespace: dict[str, Any]) -> None:
 
 def _check_fit(namespace: dict[str, Any]) -> None:
     protocol, result, truth = namespace["protocol"], namespace["result"], namespace["truth"]
+    # "about half ... by month 1.5, and by month 3 about three quarters" of the recorded events.
+    first, second = namespace["shares"]
+    assert 0.45 < first < 0.55 and 0.70 < second < 0.80
     assert protocol == exact_readmission_protocol()
     assert changed_fields(protocol, longitudinal_navigation_protocol()) == {
         "time_zero",
@@ -145,9 +150,10 @@ def _check_deaths(namespace: dict[str, Any]) -> None:
             death_free[f"risk_regimen[{plan} @ t=3]"]
             > truth[f"cif_regimen[{plan}, readmission @ t=3]"]
         )
-    # "just misses its true 0.2357"; the not-offered interval contains its value.
-    assert not covers(
-        one["risk_regimen[offered @ t=3]"].ci, death_free["risk_regimen[offered @ t=3]"]
+    # "the lower end ... sits at its true value": within a hundredth, whichever side it falls.
+    assert (
+        abs(one["risk_regimen[offered @ t=3]"].ci[0] - death_free["risk_regimen[offered @ t=3]"])
+        < 0.01
     )
     assert covers(
         one["risk_regimen[not offered @ t=3]"].ci, death_free["risk_regimen[not offered @ t=3]"]
@@ -166,6 +172,8 @@ def _check_probe() -> None:
     summary = (_PROBE / "summary.log").read_text()
     for line in _QUOTED:
         assert line in summary, line
+    row, coverage = _ONE_OFFERED
+    assert coverage in next(line for line in summary.splitlines() if line.startswith(row))
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -185,3 +193,6 @@ def check_refits(namespace: dict[str, Any]) -> None:
     assert frame.loc["subset", "verdict"] == "failed"
     # "the refits spread less than the standard error predicts".
     assert frame.loc["subset", "statistic"] < 1.0
+    # "the noise column barely moves the estimate", with no pass or fail.
+    assert frame.loc["random_common_cause", "verdict"] not in ("passed", "failed")
+    assert abs(frame.loc["random_common_cause", "statistic"]) < 0.5

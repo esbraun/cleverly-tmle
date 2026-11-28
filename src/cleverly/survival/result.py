@@ -1528,16 +1528,17 @@ class ContinuousSurvivalResult(_TargetedRisks, Mapping[str, ParameterEstimate]):
 
     Notes
     -----
-    :attr:`diagnostics`, :attr:`sensitivity`, :meth:`validate` and :meth:`assess` declare a
-    row for every assessment operation. The support, nuisance, score and influence
-    diagnostics read :attr:`record` and the influence curves, and the E-value reads a risk
-    ratio of the fit. ``diagnostics.refute()`` refits :attr:`estimator` on perturbed copies of
-    :attr:`data` (the placebo on a contrast, the random common cause and the subset tests, all
-    descriptive), and ``diagnostics.truncation_curve()`` reruns the targeting walk at other
-    floors from refitted initial hazards. ``sensitivity.simulated_confounding()`` refits
-    :attr:`estimator` once per cell on event and censoring times redrawn from the replay's own
-    Cox fits under a simulated common cause, reusing the fit's fold plan under its own seed
-    (descriptive). Every other sensitivity analysis refuses with its reason and roadmap item.
+    :attr:`diagnostics`, :attr:`sensitivity`, :meth:`validate` and :meth:`assess` declare a row
+    for every assessment operation. The support, nuisance, score and influence diagnostics read
+    :attr:`record` and the influence curves, and the E-value reads a risk ratio of the fit.
+    ``diagnostics.refute()`` refits :attr:`estimator` on perturbed copies of :attr:`data` (the
+    placebo on a contrast and the subset test, which give a verdict, and the random common
+    cause, which is descriptive), and ``diagnostics.truncation_curve()`` reruns the targeting
+    walk at other floors from refitted initial hazards. ``sensitivity.simulated_confounding()``
+    refits :attr:`estimator` once per cell on event and censoring times redrawn from the
+    replay's own Cox fits under a simulated common cause, reusing the fit's fold plan under its
+    own seed (descriptive). Every other sensitivity analysis refuses with its reason and roadmap
+    item.
     """
 
     estimates: dict[str, ParameterEstimate]

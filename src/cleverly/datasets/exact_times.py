@@ -106,8 +106,12 @@ def _check_times(
     horizons: Sequence[float], restricted_horizons: Sequence[float]
 ) -> tuple[tuple[float, ...], tuple[float, ...]]:
     times = tuple(float(t) for t in horizons)
-    if not times or any(t <= 0 for t in times) or list(times) != sorted(set(times)):
-        raise ValueError("horizons must be positive, increasing and distinct")
+    if (
+        not times
+        or not all(np.isfinite(t) and t > 0 for t in times)
+        or list(times) != sorted(set(times))
+    ):
+        raise ValueError("horizons must be finite, positive, increasing and distinct")
     restricted = tuple(float(t) for t in restricted_horizons)
     if any(t not in times for t in restricted):
         raise ValueError("each restricted horizon must be one of the horizons")

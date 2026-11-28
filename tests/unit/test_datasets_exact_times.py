@@ -115,6 +115,13 @@ def test_the_quadrature_equals_the_closed_form_at_a_fixed_risk_score(
     )
 
 
+def test_the_quadrature_averages_over_the_standard_normal_risk_score() -> None:
+    # E exp(X / 2) = exp(1 / 8) for X ~ N(0, 1): a witness the fixed-score test cannot see.
+    assert exact_module._average(lambda x: float(np.exp(0.5 * x))) == pytest.approx(
+        np.exp(0.125), abs=1e-10
+    )
+
+
 def test_the_contrasts_are_built_from_the_risks() -> None:
     for name in EXACT_CAUSES.values():
         for t in HORIZONS:
@@ -160,7 +167,15 @@ def test_the_truth_returned_with_a_draw_is_the_truth_at_its_times() -> None:
 
 @pytest.mark.parametrize(
     ("horizons", "restricted"),
-    [((), ()), ((0.0, 1.0), ()), ((2.0, 1.0), ()), ((1.0, 1.0), ()), ((1.0, 2.0), (1.5,))],
+    [
+        ((), ()),
+        ((0.0, 1.0), ()),
+        ((2.0, 1.0), ()),
+        ((1.0, 1.0), ()),
+        ((1.0, 2.0), (1.5,)),
+        ((1.0, float("inf")), ()),
+        ((float("nan"),), ()),
+    ],
 )
 def test_malformed_times_are_refused(
     horizons: tuple[float, ...], restricted: tuple[float, ...]

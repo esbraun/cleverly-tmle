@@ -676,6 +676,7 @@ rebuilds the first four columns from the code.
 | request | why |
 | --- | --- |
 | a treatment with more than two levels, a rule, a stochastic policy | every source has two static arms |
+| `TimeToEvent(grid="continuous")` with clusters, weights, a dose, declared mechanisms or eliminated causes | the continuous-time TMLE has no source or study for them ([X6](../roadmap.md#x6-continuous-time-survival-and-competing-risks)); declare `grid=` for the binned survival estimators, which take them |
 | a target time before the first event of some cause in some arm | that risk's influence curve is zero and its interval undefined |
 | a target time past one arm's follow-up | the risk there would be an extrapolation of the hazard model |
 | a declared cause with no event | its risk is zero by construction |
