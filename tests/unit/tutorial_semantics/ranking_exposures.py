@@ -5,7 +5,8 @@ the resulting namespace to :func:`check`, and the slow tier passes it to :func:`
 well.  Each assertion witnesses one claim the prose makes about the law or about this draw.  A
 relation on this draw certifies no method; the registered studies do that, and the page's seed
 sweep (``reviews/notebook-review/probes/ranking-exposures``) gives the repeated-draw rates the
-readings quote.
+chain reading quotes. The sweep's multiplicity rates read the Benjamini-Hochberg adjustment the
+page used before the step-down max-T became the default, so the page no longer quotes them.
 """
 
 from __future__ import annotations
@@ -14,20 +15,15 @@ import re
 from typing import Any
 
 from cleverly.datasets import PRACTICES, discharge_practices_protocol, discharge_practices_truth
+from cleverly.variable_importance import PENDING_REASON
 from tests.documents import ROOT
 from tests.unit.tutorial_semantics import EXAMPLES, assert_protocol_recorded, covers
 
-#: The seed sweep that the multiplicity lesson and the chain reading quote.
+#: The seed sweep that the chain reading quotes.
 _SWEEP = "reviews/notebook-review/probes/ranking-exposures/sweep.log"
 
 #: Decimals the readings write that no stored output prints, each with its reason.
-UNPRINTED_DECIMALS = {
-    "multiplicity-reading: 0.0158": f"the mean false discovery proportion over 400 draws: {_SWEEP} "
-    "(check asserts it)",
-    "multiplicity-reading: 0.0035": f"its standard error over 400 draws: {_SWEEP} (check asserts it)",
-    "multiplicity-reading: 0.02": "the Benjamini-Hochberg bound q m0 / m = 0.05 x 2 / 5, written "
-    f"in the reading and in {_SWEEP}",
-}
+UNPRINTED_DECIMALS: dict[str, str] = {}
 
 #: Decimals a reading quotes from a code cell outside its own section.
 NARRATION_SOURCES: dict[str, dict[str, str]] = {}
@@ -155,12 +151,14 @@ def _check_assessment(namespace: dict[str, Any]) -> None:
     assert rows.loc["simulated_confounding", "status"] == "unavailable"
 
 
-def _check_multiplicity() -> None:
-    assert _sweep_rate("some no-effect practice at raw p below 0.05") == (33, 400)
-    assert _sweep_rate("some no-effect practice at adjusted p below 0.05") == (20, 400)
-    text = (ROOT / _SWEEP).read_text()
-    assert "mean false discovery proportion: 0.0158 (standard error 0.0035)" in text
-    assert "2 of 5 nulls: 0.0200" in text
+def _check_multiplicity(namespace: dict[str, Any]) -> None:
+    # The default adjustment is the step-down max-T, and its claim reads experimental only
+    # because the study that measures it has not run: this run is the study's configuration.
+    ranking = namespace["ranking"]
+    assert (ranking.method, ranking.error_rate) == ("step-down max-T", "fwer")
+    support = ranking.adjustment_support
+    assert support.label == "experimental"
+    assert support.reason == PENDING_REASON
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -171,7 +169,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_ranking(namespace)
     _check_chain(namespace)
     _check_assessment(namespace)
-    _check_multiplicity()
+    _check_multiplicity(namespace)
 
 
 def check_refits(namespace: dict[str, Any]) -> None:

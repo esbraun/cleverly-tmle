@@ -347,8 +347,7 @@ class CandidateDiagnostics(_CandidateFacade, DiagnosticsFacade):
 
     Each operation runs on ``result.fits[candidate].diagnostics`` for every candidate and
     returns a :class:`~cleverly.assessment.CandidateReports`.  Each report uses that
-    candidate's own estimate and unadjusted interval, not the Benjamini-Hochberg adjusted
-    test.
+    candidate's own estimate and unadjusted interval, not the multiplicity-adjusted test.
 
     Parameters
     ----------
@@ -528,7 +527,7 @@ class CandidateSensitivity(_CandidateFacade, SensitivityFacade):
     Each analysis runs on ``result.fits[candidate].sensitivity`` for every candidate and
     returns a :class:`~cleverly.assessment.CandidateReports`.  A bound or a benchmark of one
     candidate reads that candidate's own estimate and unadjusted interval, never the
-    Benjamini-Hochberg adjusted test.
+    multiplicity-adjusted test.
 
     Parameters
     ----------

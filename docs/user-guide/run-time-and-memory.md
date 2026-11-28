@@ -67,7 +67,8 @@ ensemble, so each of these is a lever:
   20,000 of the fit's units. It answers a narrower question, as
   [refute a sample of a large fit](refutation.md#refute-a-sample-of-a-large-fit) explains.
 - **Kept fits.** `variable_importance(..., keep_fits=False)` keeps only the estimates and the
-  summary, so memory no longer grows with the number of candidates
+  summary, so memory grows by one column of per-row numbers for each row of the table, which the
+  p-value adjustment reads, rather than by one fit per candidate
   ([large runs](variable-importance.md#large-runs)).
 
 ## Use more cores

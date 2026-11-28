@@ -4240,27 +4240,90 @@ and it introduces no new influence function.
 
 Each candidate is prepared as a discrete treatment (`treatment_kind="discrete"`), so a candidate
 with more than two levels gives one contrast per non-reference level, each a row, and the
-Benjamini-Hochberg adjustment counts rows. Before any fit, a `protocol=` that is not a
-`StudyProtocol` or `None` is refused (`TypeError`). `_checked_candidates` then refuses data that
+multiplicity adjustment counts rows. Before any fit, a `protocol=` that is not a
+`StudyProtocol` or `None` is refused (`TypeError`). `_checked_candidates` then refuses an unknown
+`adjustment=` (`ValueError`), a `multiplier_draws` or `multiplier_seed` that is not an integer
+(`TypeError`), fewer than `MINIMUM_MULTIPLIER_DRAWS = 1,000` draws (`ValueError`), data that
 is not a dataframe (`TypeError`), empty or repeated candidates (`ValueError`), and the outcome named
 as a candidate (`DataError`). The estimator's fold-policy and declaration refusals then run once.
 Each candidate in turn then meets the empty-adjustment and missing-value refusals (`DataError`;
 `tests/unit/test_variable_importance.py`), the discrete preparation's limit of 20 levels, which
 refuses a continuous candidate, the outcome-scale refusal, so a cross-fitted fit of a continuous
-outcome needs a declared `q_bounds`, and the inference-status refusal below.
+outcome needs a declared `q_bounds`, and the inference-status refusal below. Under
+`adjustment="max_t"` two refusals follow the candidate loop and still precede the first fit
+(`CapabilityError`, `INFERENCE_GAP`): `weights_estimated=True`, whose curves omit the
+weight-estimation term, and clustered data with fewer than `FEW_CLUSTER_THRESHOLD = 40` clusters,
+where each row's test reads a Student $t$ reference that the normal max-T does not
+(`tests/unit/test_variable_importance_max_t.py`).
 
 An estimator whose status withholds its interval is refused with `CapabilityError` before the
 first fit. That includes a selector-path or generated-design collaborative estimator, and a
 clustered `TMLE` or `DRTMLE` under `"no_cluster_variance_plugin"`. A status that shows its
-interval, such as `"few_cluster_plugin"` or `"estimated_weight_plugin"`, runs. The procedure
-adjusts one p-value per candidate with Benjamini and Hochberg, and a withheld status reports no
+interval, such as `"few_cluster_plugin"` or `"estimated_weight_plugin"`, runs under
+`adjustment="bh"`. Either adjustment reads one p-value per row, and a withheld status reports no
 p-value. The check prepares each candidate's data
 and asks the estimator's own `_inference_status()`, which is the status its estimates carry.
 
+**The step-down max-T** (`adjustment="max_t"`, the default) controls the family-wise error rate
+(FWER) of the $m$ rows. Let $p_j$ be row $j$'s two-sided p-value and $t_j = \Phi^{-1}(1 - p_j/2)$,
+computed as `norm.isf(p_j / 2)` so that a p-value below about $10^{-16}$ keeps a finite, ordered
+statistic; for an ordinary Wald row $t_j = |\hat\psi_j - \psi_{0j}| / \widehat{\mathrm{SE}}_j$.
+$\hat R$ is the correlation of the rows' estimates from `estimate_covariance` on their influence
+curves, centred and cluster-aware, which every fit computes on the same $n$ rows. $B$ =
+`multiplier_draws` (default 10,000) draws $|Z^{(b)}|$, $Z^{(b)} \sim N(0, \hat R)$, by Cholesky
+from `default_rng(multiplier_seed)` give, for the rows ranked $t_{(1)} \ge \dots \ge t_{(m)}$,
+$\tilde p_{(k)} = \max_{i \le k} B^{-1} \sum_b 1\{\max_{l \ge i} |Z^{(b)}_{(l)}| \ge t_{(i)}\}$,
+then $\min(1, \max(\tilde p_{(k)}, p_{(k)}))$. The floor at the row's own p-value changes a value
+only by Monte Carlo error.
+
+The draws are the exact conditional law of the Gaussian-multiplier
+bootstrap of the studentized curves (Chernozhukov, Chetverikov and Kato 2013, Theorem 5.1).
+van der Laan, Dudoit and Pollard (2004, Theorems 1, 3 and 6) give asymptotic FWER control at
+fixed $m$ for a step-down on a consistent estimate of the null law of the statistics. Each
+$\widehat{\mathrm{SE}}_j$ is consistent, so the studentized vector has the same limit by
+Slutsky's lemma. $t_j$ read from $p_j$ equals the Wald statistic except where the test carries a
+residual margin, which changes it by $o_P(1)$. Because the false discovery proportion is at most
+$1\{V \ge 1\}$, the false discovery rate is at most the FWER.
+
+After the fits, the step-down max-T refuses (`CapabilityError`) a row whose test reads a $t$
+reference, a row whose curve has zero variance, and a correlation whose smallest eigenvalue is
+below `CORRELATION_TOLERANCE = 1e-8`, naming the rows that load on it (duplicate candidates are
+one such case). The result records `method`, `error_rate`, `correlation` (in entry order,
+read-only), `multiplier_draws` and `multiplier_seed`. The Monte Carlo error of an adjusted
+p-value near 0.05 is about 0.002 at 10,000 draws and 0.007 at the minimum of 1,000, and another
+seed moves a value by that error. A fit widened by a stopping rule (`rule_widened`) is not keyed
+separately: its margin-reduced statistic $\max(0, |t| - \text{margin}/\widehat{\mathrm{SE}})$
+is at most the Wald statistic, so the joint maximum stays conservative.
+
+**Benjamini-Hochberg** (`adjustment="bh"`) aims at the false discovery rate and records no
+correlation or draws. Its claim is experimental in every configuration. Benjamini and Yekutieli
+(2001, Theorem 1.2) cover independent or positively regression-dependent (PRDS) statistics.
+Two-sided statistics of correlated estimates are PRDS only under special structures, such as
+$|Z|$ multivariate totally positive of order 2, and nothing in the fits guarantees one, so no
+theorem covers Benjamini-Hochberg at the arbitrary correlation `variable_importance` faces.
+Correlated two-sided Gaussian tests can exceed its rate (Dobriban 2026).
+
+**The adjustment's support label.** `result.adjustment_support` returns a `Support` from
+`variable_importance_support`, which reads the run's `result.adjustment_key`, an `AdjustmentKey`
+of the engine, the estimand, the adjustment set, clustering, weights, missingness, $n$, the folds,
+`logistic_learners` (both learners `LogisticRegression`) and `binary_outcome`. `ADJUSTMENTS`
+lists the accepted `adjustment=` values, and `result.error_rate` is `"fwer"` under `"max_t"` and
+`"fdr"` under `"bh"`. It reads `experimental` under `"bh"`. Under `"max_t"` it reads
+`supported`, citing the `variable-importance` study, only when the run is a `TMLE` of the ATE on a
+binary outcome with `adjust_for_other_candidates=True`, no clusters, weights or missingness
+indicator, `LogisticRegression` for both learners, in sample or cross-fitted with 5 folds,
+$n \ge$ `MEASURED_N = 4,000`, at most `MEASURED_ROWS = 12` rows, and every row's own estimate
+supported by a measured per-estimate row (`T01.binary` or `T08` in sample, `T02.binary`
+cross-fitted). Until that study has run, `PENDING_REASON` holds every configuration at
+`experimental`; the study is declared in `tests/studies/variable_importance.py` with its laws,
+cells, margins, seeds and sizing rule (`tests/unit/test_variable_importance_design.py`). Each
+row's own `support` label is separate and describes that row's estimate.
+
 By default the result keeps every candidate's fit in `result.fits`. With `keep_fits=False` it keeps
 only the entries and what the summary reads, and releases each candidate's prepared data and fit
-before the next candidate starts. Memory then stays near one candidate's fit instead of growing
-with the number of candidates; under the default `adjust_for_other_candidates=True` each
+before the next candidate starts. Each entry's estimate keeps its length-$n$ influence curve, which
+the step-down max-T reads, so memory grows by one curve per row instead of one fit per
+candidate; under the default `adjust_for_other_candidates=True` each
 candidate's data also carries the other candidates as covariates. The estimates, p-values and frame
 are the same under both settings, and so is the summary, except that a fit warning is written out
 in the summary because `result.fits[name].summary()` is not available. Each candidate's data is
@@ -4278,7 +4341,7 @@ summary still reports no protocol, because the fit has no identified effect to c
 operation on every candidate's own fit, through that fit's facade, and return a
 `CandidateReports`: one report per candidate. A bound, a benchmark or a refutation of one
 candidate reads that candidate's own estimate and unadjusted interval, never the
-Benjamini-Hochberg adjusted test. A row is available when every candidate's row is, deferred when
+multiplicity-adjusted test. A row is available when every candidate's row is, deferred when
 none refuses and some defers, and otherwise carries the first refusing candidate's refusal, named
 after it. A combined report reads each candidate's report with its own interpreter and takes the
 first status of failed, warning, passed and completed that any candidate reached, naming each

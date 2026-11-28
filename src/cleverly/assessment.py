@@ -5504,7 +5504,7 @@ class CandidateReports(Mapping[str, Any]):
 
     A read-only mapping from candidate to that candidate's own report, in candidate order.
     Each report is what ``result.fits[candidate]`` returns for the same call, with that
-    fit's own estimate and unadjusted interval, not the Benjamini-Hochberg adjusted test.
+    fit's own estimate and unadjusted interval, not the multiplicity-adjusted test.
 
     Parameters
     ----------

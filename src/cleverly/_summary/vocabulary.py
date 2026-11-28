@@ -3639,6 +3639,8 @@ SEARCH: Final = "Search"
 SEARCH_WORK: Final = "Search work"
 COVARIATES_SEARCHED: Final = "Covariates searched"
 ADJUSTMENT: Final = "Multiple testing"
+#: What a step-down max-T note adds before its label's reason when the label is experimental.
+ADJUSTMENT_EXPERIMENTAL: Final = "This claim is experimental."
 LOSS: Final = "Loss"
 BEST: Final = "Best candidate"
 ENSEMBLE_RISK: Final = "Ensemble CV risk"
@@ -3928,6 +3930,7 @@ T1_NOTE_CODES: Final[Mapping[str, NoteKind]] = MappingProxyType(
         "stacked_interval": "note",
         "ordinary_tmle": "note",
         "multiple_testing": "note",
+        "multiple_testing_bh": "note",
         "separate_fits": "note",
         "learners_failed": "warning",
         "ensemble_risk": "note",
@@ -4016,10 +4019,16 @@ T1_NOTE_TEXTS: Final[Mapping[str, str]] = MappingProxyType(
             "ordinary TMLE."
         ),
         "multiple_testing": (
-            "The adjusted p-values control the false discovery rate over the {count} tests "
-            "({method}) if the tests are independent or positively dependent, which these "
-            "fits do not guarantee. The intervals and the unadjusted p-values are not "
-            "adjusted."
+            "The adjusted p-values control the family-wise error rate, the chance of any "
+            "false finding among the {count} tests. They use the correlation of the "
+            "candidates' fits, and they also bound the false discovery rate. The intervals and "
+            "the unadjusted p-values are each candidate's own."
+        ),
+        "multiple_testing_bh": (
+            "The adjusted p-values aim at a false discovery rate over the {count} tests "
+            "(Benjamini-Hochberg). No theorem guarantees that rate for two-sided tests that "
+            "share rows, and correlated two-sided tests can exceed it, so this claim is "
+            "experimental. adjustment='max_t' controls the family-wise error rate instead."
         ),
         "separate_fits": (
             "Each row comes from its own fit with that candidate as the treatment; the "

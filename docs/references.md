@@ -2428,6 +2428,20 @@ sizes only the cluster sum is the delta-method variance of the row mean
 - Benjamini & Hochberg (1995), [*Controlling the False Discovery Rate: A Practical and
   Powerful Approach to Multiple Testing*](https://doi.org/10.1111/j.2517-6161.1995.tb02031.x),
   DOI 10.1111/j.2517-6161.1995.tb02031.x.
+- Benjamini & Yekutieli (2001), [*The Control of the False Discovery Rate in Multiple Testing
+  under Dependency*](https://doi.org/10.1214/aos/1013699998), DOI 10.1214/aos/1013699998.
+  Theorem 1.2 needs positive regression dependence (PRDS). Two-sided tests of correlated
+  estimates are PRDS only under special structures, such as $|Z|$ MTP2, so no theorem covers an
+  arbitrary correlation; the reason `adjustment="bh"` of `variable_importance` reads experimental.
+- van der Laan, Dudoit & Pollard (2004), [*Multiple Testing. Part II. Step-Down Procedures for
+  Control of the Family-Wise Error Rate*](https://doi.org/10.2202/1544-6115.1041),
+  DOI 10.2202/1544-6115.1041 (read as Berkeley working paper 139). Theorems 1, 3 and 6:
+  asymptotic FWER control of a step-down on a consistent estimate of the null law, the
+  theorem of `variable_importance`'s step-down max-T.
+- Dobriban (2026), [*The Benjamini-Hochberg Procedure Can Fail to Control the FDR for
+  Correlated Two-Sided Gaussian Tests*](https://arxiv.org/abs/2607.12208), arXiv:2607.12208.
+  The counterexample to the false-discovery claim of Benjamini-Hochberg on correlated
+  two-sided tests.
 - Mammen (1993), [*Bootstrap and Wild Bootstrap for High Dimensional Linear
   Models*](https://doi.org/10.1214/aos/1176349025), DOI 10.1214/aos/1176349025. The two-point
   multiplier of `multiplier_kind="mammen"`.
