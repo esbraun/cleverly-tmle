@@ -702,20 +702,20 @@ or `not_applicable` for one request at run time, such as a refused parameter. "n
 the family has no row: its facade has no such call, so the call raises rather than reporting a
 status.
 
-| operation | `point` | `longitudinal` | `structural` | `augmented_trial` | `continuous_survival` | `effect_modification` | `dose_response` |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| methods | `tmle`, `collaborative_tmle`, `drtmle`, `adaptive_iptw` | `tmle`, `sdr`, `ipsi`, `gcomp`, `ipw`, `parametric_gformula` | `snmm` | `atmle` | `tmle` | `tmle`, `drtmle`, `collaborative_tmle`, `ep` | `tmle` |
-| `support` | runs | runs | unavailable | runs | runs | runs | runs |
-| `nuisance_models` | runs | runs | unavailable | runs | runs | runs | runs |
-| `score_equations` | runs | runs | not applicable | runs | runs | runs | runs |
-| `corrections` | runs for `drtmle` | not applicable | not applicable | runs | not applicable | not applicable | not applicable |
-| `truncation_curve` | runs for `tmle`, `collaborative_tmle`, `drtmle` | runs with `bounds=` | not applicable | unavailable | runs | unavailable | not applicable |
-| `refute` | runs for `tmle`, `collaborative_tmle`, `drtmle` | runs | runs | unavailable | runs | unavailable | unavailable |
-| `calibration` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
-| `risk_comparison` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
-| `stability` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
-| `modifier_stability` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
-| `targeting_curve` | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| operation | `point` | `longitudinal` | `structural` | `augmented_trial` | `continuous_survival` | `continuous_longitudinal` | `effect_modification` | `dose_response` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| methods | `tmle`, `collaborative_tmle`, `drtmle`, `adaptive_iptw` | `tmle`, `sdr`, `ipsi`, `gcomp`, `ipw`, `parametric_gformula` | `snmm` | `atmle` | `tmle` | `tmle` | `tmle`, `drtmle`, `collaborative_tmle`, `ep` | `tmle` |
+| `support` | runs | runs | unavailable | runs | runs | runs | runs | runs |
+| `nuisance_models` | runs | runs | unavailable | runs | runs | runs | runs | runs |
+| `score_equations` | runs | runs | not applicable | runs | runs | runs | runs | runs |
+| `corrections` | runs for `drtmle` | not applicable | not applicable | runs | not applicable | not applicable | not applicable | not applicable |
+| `truncation_curve` | runs for `tmle`, `collaborative_tmle`, `drtmle` | runs with `bounds=` | not applicable | unavailable | runs | unavailable | unavailable | not applicable |
+| `refute` | runs for `tmle`, `collaborative_tmle`, `drtmle` | runs | runs | unavailable | runs | unavailable | unavailable | unavailable |
+| `calibration` | not declared | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `risk_comparison` | not declared | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `stability` | not declared | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `modifier_stability` | not declared | not declared | not declared | not declared | not declared | not declared | runs | not declared |
+| `targeting_curve` | not declared | not declared | not declared | not declared | not declared | not declared | runs | not declared |
 
 The methods row lists the `method=` values of each family; in the `longitudinal` column `tmle` is
 `LTMLE`. A curve (`effect_modification`) rewrites three of its rows by the method that produced it
@@ -4240,7 +4240,8 @@ and it introduces no new influence function.
 
 Each candidate is prepared as a discrete treatment (`treatment_kind="discrete"`), so a candidate
 with more than two levels gives one contrast per non-reference level, each a row, and the
-Benjamini-Hochberg adjustment counts rows. Before any fit, `_checked_candidates` refuses data that
+Benjamini-Hochberg adjustment counts rows. Before any fit, a `protocol=` that is not a
+`StudyProtocol` or `None` is refused (`TypeError`). `_checked_candidates` then refuses data that
 is not a dataframe (`TypeError`), empty or repeated candidates (`ValueError`), and the outcome named
 as a candidate (`DataError`). The estimator's fold-policy and declaration refusals then run once.
 Each candidate in turn then meets the empty-adjustment and missing-value refusals (`DataError`;
@@ -4265,6 +4266,13 @@ are the same under both settings, and so is the summary, except that a fit warni
 in the summary because `result.fits[name].summary()` is not available. Each candidate's data is
 prepared a second time for its fit, after the refusal checks above, and `result.fits` refuses with
 `CapabilityError`.
+
+A `protocol=` record is the study's scientific protocol for the whole ranking. It changes no fit.
+The result keeps it as `result.protocol`, `summary(detail="full")` prints its fields as the study
+description (or that none was recorded), and each candidate's fit stores its fingerprint in
+`provenance.protocol_fingerprint`, as a fit from a `CausalStudy` does. Each candidate's own
+summary still reports no protocol, because the fit has no identified effect to carry one
+(`tests/unit/test_variable_importance.py`).
 
 `result.diagnostics`, `result.sensitivity`, `result.validate()` and `result.assess()` run each
 operation on every candidate's own fit, through that fit's facade, and return a

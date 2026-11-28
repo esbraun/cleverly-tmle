@@ -194,6 +194,8 @@ CURRENT: dict[str, str] = {
     "refuter-sampled": "run under the shipped intervals (X106 H declared run)",
     "learned-rule-contrast-comparators": "run under the shipped intervals (X123 (d) declared "
     "run at 2dd46004)",
+    "parametric-gformula": "regenerated under the shipped intervals (rule-cell declared run at "
+    "b778e4dd)",
 }
 
 #: Why a study holds no verdict the shipped intervals move, for each study whose screen row

@@ -385,7 +385,7 @@ def check_refits(namespace: dict[str, Any]) -> None:
 
 
 def _check_refutation(namespace: dict[str, Any]) -> None:
-    """Try to break the result: the refits are descriptive, and each skipped check refuses."""
+    """Refutation: the refits are descriptive, and each skipped check refuses."""
     fitted = namespace["full"]
     refutation = namespace["refutation"]
     original = fitted["ate"].psi

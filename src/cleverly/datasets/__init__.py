@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
+from .discharge_practices import (
+    PRACTICES,
+    discharge_practices_protocol,
+    discharge_practices_truth,
+    make_discharge_practices,
+)
 from .heart_failure import heart_failure_protocol, heart_failure_truth, make_heart_failure
+from .home_support import (
+    HOME_SUPPORT_LEVELS,
+    home_support_effect,
+    home_support_truth,
+    make_home_support,
+)
 from .longitudinal import (
     REPEATED_RULE_LABEL,
     RULE_LABEL,
@@ -109,6 +121,12 @@ from .treatment_rules import (
     treatment_rule_effect,
     treatment_rule_value,
 )
+from .two_decisions import (
+    TWO_DECISION_COLUMNS,
+    learned_regimen_truth,
+    make_two_decision_rules,
+    two_decision_rules_protocol,
+)
 from .weekly_orders import (
     ORDER_PLANS,
     ORDER_TILTS,
@@ -123,6 +141,7 @@ __all__ = [
     "DGP",
     "DOSE_PLANS",
     "GENERATORS",
+    "HOME_SUPPORT_LEVELS",
     "OFFER_LEVELS",
     "OFFER_PLANS",
     "OFFER_WEEKS",
@@ -130,6 +149,7 @@ __all__ = [
     "ORDER_TILTS",
     "ORDER_WEEKS",
     "PILOT_OFFER_CHANCES",
+    "PRACTICES",
     "PRICE_BANDS",
     "PRICE_NODES",
     "PRICE_PLANS",
@@ -138,6 +158,7 @@ __all__ = [
     "REPEATED_RULE_LABEL",
     "RULE_LABEL",
     "SCHEDULE_LEVELS",
+    "TWO_DECISION_COLUMNS",
     "WEIGHTED_SELECTION_PROBABILITIES",
     "MultiArmDGP",
     "ShiftDGP",
@@ -149,10 +170,15 @@ __all__ = [
     "competing_rule_truth",
     "competing_truth",
     "contact_schedules_truth",
+    "discharge_practices_protocol",
+    "discharge_practices_truth",
     "heart_failure_protocol",
     "heart_failure_truth",
     "heterogeneous_dgp",
+    "home_support_effect",
+    "home_support_truth",
     "instrument_dgp",
+    "learned_regimen_truth",
     "learned_rule_truth",
     "linear_dgp",
     "longitudinal_navigation_protocol",
@@ -163,8 +189,10 @@ __all__ = [
     "make_cde",
     "make_clustered",
     "make_contact_schedules",
+    "make_discharge_practices",
     "make_heart_failure",
     "make_heterogeneous",
+    "make_home_support",
     "make_instrument",
     "make_linear_ate",
     "make_longitudinal",
@@ -188,6 +216,7 @@ __all__ = [
     "make_shift_dose",
     "make_team_readmission",
     "make_treatment_rules",
+    "make_two_decision_rules",
     "make_weak_overlap",
     "make_weekly_orders",
     "missing_outcome_binary_dgp",
@@ -221,6 +250,7 @@ __all__ = [
     "team_readmission_truth",
     "treatment_rule_effect",
     "treatment_rule_value",
+    "two_decision_rules_protocol",
     "weak_overlap_dgp",
     "weekly_orders_protocol",
     "weekly_orders_truth",

@@ -1,0 +1,10 @@
+cleverly 0.2.8
+draws: 500, seeds 1000 to 1499
+truth: ATE 1.0, groups high 1.957500, low 0.042577; interviewed-population ATE 1.486560, groups high 2.088817, low 0.253574
+weighted: covers ATE 476 of 500 (0.952; Wald 95% 0.933 to 0.971); bias -0.00338 (MC SE 0.00206); SD/SE 0.993
+unweighted: covers ATE 0 of 500 (0.000; Wald 95% 0.000 to 0.000); covers interviewed ATE 470 of 500 (0.940; Wald 95% 0.919 to 0.961); mean minus interviewed ATE -0.00226
+weighted groups: high 477 of 500 (0.954; Wald 95% 0.936 to 0.972); low 483 of 500 (0.966; Wald 95% 0.950 to 0.982)
+unweighted groups: high 474 of 500 (0.948; Wald 95% 0.929 to 0.967); low 483 of 500 (0.966; Wald 95% 0.950 to 0.982)
+missing offer records, weighted: covers ATE 481 of 500 (0.962; Wald 95% 0.945 to 0.979)
+two decisions, weighted: always 477 of 500 (0.954; Wald 95% 0.936 to 0.972); never 470 of 500 (0.940; Wald 95% 0.919 to 0.961)
+two decisions, unweighted: always 55 of 500 (0.110; Wald 95% 0.083 to 0.137); never 29 of 500 (0.058; Wald 95% 0.038 to 0.078)

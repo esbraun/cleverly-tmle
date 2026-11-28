@@ -23,7 +23,7 @@ law      structure and plans
          :math:`A_t = L_t`, and the odds tilt ``odds x2``
 ``G2``   :math:`T = 3`, a Gaussian then a binary covariate per node with a steep slope, a
          continuous outcome.  Plans: ``treat_all``, ``treat_none`` and the known stochastic
-         ``policy_b``
+         ``policy_b``; in a fit set of its own, the known ``rule`` :math:`A_t = 1\{Z_t > 0\}`
 ``G3``   :math:`T = 4`, a binary :math:`L_t`, censoring, two competing causes drawn from a
          baseline-category multinomial.  Plans: ``treat_all_4`` and ``treat_none_4``, at the
          horizons 2 and 4
@@ -34,7 +34,8 @@ law      structure and plans
          bias is reported
 ``G5``   :math:`T = 3`, a binary then a three-level categorical covariate per node, a binary
          treatment and a continuous outcome with a small residual SD.  Plans: ``treat_all``,
-         ``treat_none`` and the odds tilt ``odds x2``.  The law lifts the binary-covariate,
+         ``treat_none`` and the odds tilt ``odds x2``; in a fit set of its own, the known
+         ``rule`` :math:`A_1 = L_1`, :math:`A_t = 1\{S_t = 1\}`.  The law lifts the binary-covariate,
          categorical-covariate and tilt terms of the influence curve
 =======  ==========================================================================================
 
@@ -55,8 +56,8 @@ at least 0.95 at its shrunk SE ratio, and at least 0.925 with the posterior SD o
 (about 0.0085) counted, above the floor of 0.90.  Some finite-sample reds are therefore expected
 even for a perfect estimator.  The design test computes the count over the :data:`GATED_CELLS`
 gated cells, at the empirical-Bayes shrunk SE ratio of each cell (the ratios are near, not at,
-1), with the 42 gated derived-control cells counted: :data:`EXPECTED_RED_COUNT` = 1.26 reds, and
-a chance of :data:`PROBABILITY_OF_A_RED` = 0.72 of at least one.  Two reds read as expected.
+1), with the 46 gated derived-control cells counted: :data:`EXPECTED_RED_COUNT` = 1.31 reds, and
+a chance of :data:`PROBABILITY_OF_A_RED` = 0.73 of at least one.  Two reds read as expected.
 A red is therefore not a surprise.  No replicate count rises to hide it.
 
 A red row is a defect suspect.  It is a finite-sample red only when all three hold: its 99%
@@ -110,12 +111,12 @@ IMPLEMENTATION = "cleverly-parametric-gformula"
 PYGFORMULA = "1.2.0"
 
 #: The expected count of finite-sample reds under perfect calibration, over :data:`GATED_CELLS`
-#: gated cells (72 measured cells and 42 derived controls), and the chance of at least one.  The
+#: gated cells (74 measured cells and 46 derived controls), and the chance of at least one.  The
 #: design test recomputes both from the replicates, the shrunk SE ratio and the pilot noise of
 #: each cell (``expected_reds``).
-EXPECTED_RED_COUNT = 1.26
-PROBABILITY_OF_A_RED = 0.72
-GATED_CELLS = 114
+EXPECTED_RED_COUNT = 1.31
+PROBABILITY_OF_A_RED = 0.73
+GATED_CELLS = 120
 
 #: The simulated histories per unit behind each estimate: the estimator's default, declared.
 N_DRAWS = 10
@@ -165,12 +166,46 @@ def _rule_dose(node: int) -> Any:
     return rule
 
 
-def regimens(law: str, *, static_only: bool = False, with_rule: bool = False) -> dict[str, Any]:
+def _z_rule(node: int) -> Any:
+    column = f"Z{node}"
+
+    def rule(history: Any) -> Any:
+        return (np.asarray(history[column], dtype=float) > laws.G2_RULE_CUT).astype(int)
+
+    return rule
+
+
+def _level_rule(node: int) -> Any:
+    # The fit hands a rule the categorical covariate as its own column of codes 0, 1, 2.
+    column = f"S{node}"
+
+    def rule(history: Any) -> Any:
+        return (np.asarray(history[column], dtype=float) == laws.G5_RULE_LEVEL).astype(int)
+
+    return rule
+
+
+def _known_rule(law: str) -> DynamicRegimen:
+    """The known rule of a law that has a rule fit set (:data:`RULE_KEYS`)."""
+    if law == "G2":
+        return DynamicRegimen("rule", tuple(_z_rule(t) for t in (1, 2, 3)), rule_kind="known")
+    if law == "G5":
+        return DynamicRegimen("rule", (_rule(1), _level_rule(2), _level_rule(3)), rule_kind="known")
+    raise KeyError(law)
+
+
+def regimens(
+    law: str, *, static_only: bool = False, with_rule: bool = False, rule_fit: bool = False
+) -> dict[str, Any]:
     """The plans of one law.
 
     ``static_only`` keeps the static plans an ICE fit reads, and ``with_rule`` adds the dynamic
-    rule of ``G1`` for the ``LTMLE`` fit that reads it.
+    rule of ``G1`` for the ``LTMLE`` fit that reads it.  ``rule_fit`` returns the plans of the
+    rule fit set of ``G2`` or ``G5``: the known rule beside the reference plan, so no other
+    fit of the law moves.
     """
+    if rule_fit:
+        return {REFERENCES[law]: 0, "rule": _known_rule(law)}
     if law == "G1":
         plans: dict[str, Any] = {
             "treat_all": 1,
@@ -289,6 +324,7 @@ def fit(
     n_draws: int = N_DRAWS,
     n_derivative_draws: int | None = None,
     static_only: bool = False,
+    rule_fit: bool = False,
 ) -> Any:
     """One fit of ``method`` on a draw of ``law``.
 
@@ -308,6 +344,8 @@ def fit(
         The simulated histories per unit behind the estimate and the derivatives.
     static_only : bool
         Fit only the static plans of the law.
+    rule_fit : bool
+        Fit the rule fit set's plans of ``G2`` or ``G5`` (:func:`regimens`); ``nice`` only.
     """
     columns = _columns(law)
     common: dict[str, Any] = {
@@ -322,7 +360,7 @@ def fit(
         warnings.simplefilter("ignore")
         if method == "nice":
             model: Any = ParametricGFormula(
-                regimens(law, static_only=static_only),
+                regimens(law, static_only=static_only, rule_fit=rule_fit),
                 reference=REFERENCES[law],
                 n_draws=n_draws,
                 n_derivative_draws=n_derivative_draws,
@@ -364,6 +402,11 @@ def _own_covariate(node: int) -> Callable[[Mapping[str, np.ndarray]], np.ndarray
     return lambda table: table[f"L{node}"]
 
 
+def _own_level(node: int, level: int) -> Callable[[Mapping[str, np.ndarray]], np.ndarray]:
+    # The sums write a categorical covariate as its drop-first indicators (``S2=1``).
+    return lambda table: table[f"S{node}={level}"]
+
+
 def _own_policy(
     node: int, low: float, slope: float
 ) -> Callable[[Mapping[str, np.ndarray]], np.ndarray]:
@@ -376,6 +419,12 @@ def _node_plans(law: str, label: str) -> dict[int, laws.NodePlan]:
         return {t: laws.Fixed(1.0) for t in nodes}
     if label in ("treat_none", "treat_none_4"):
         return {t: laws.Fixed(0.0) for t in nodes}
+    if label == "rule" and law == "G2":
+        return {t: laws.Threshold(f"Z{t}", laws.G2_RULE_CUT) for t in nodes}
+    if label == "rule" and law == "G5":
+        return {1: laws.Rule(_own_covariate(1))} | {
+            t: laws.Rule(_own_level(t, laws.G5_RULE_LEVEL)) for t in (2, 3)
+        }
     if label == "rule":
         return {t: laws.Rule(_own_covariate(t)) for t in nodes}
     if label == "odds x2":
@@ -441,6 +490,10 @@ def truths(law: str) -> Mapping[str, float]:
     for label in levels:
         if label != anchor:
             out[f"ate_regimen[{label} vs {anchor}]"] = levels[label] - levels[anchor]
+    if law in RULE_KEYS:
+        # The rule of the rule fit set; a G2 rule reads the Gaussian Z_t, integrated on each
+        # side of the cut.
+        out["ey_regimen[rule]"] = target.g_formula(_node_plans(law, "rule"), chunks=chunks)
     return out
 
 
@@ -520,13 +573,26 @@ KEYS: dict[str, dict[str, str]] = {
 }
 
 
+#: ``law -> key -> estimand``: the known rule of each rule fit set.  It is fitted beside the
+#: reference plan only, so the calibration fit set of the law and its primary scenario keep
+#: their plans and their rows.
+RULE_KEYS: dict[str, dict[str, str]] = {
+    "G2": {"rule": "ey_regimen[rule]"},
+    "G5": {"rule": "ey_regimen[rule]"},
+}
+
+
 def label_of(law: str, key: str) -> str:
     """The calibration label of a law's key."""
     return f"nice_{law.lower()}_{key}"
 
 
-CALIBRATION_LABELS: tuple[str, ...] = tuple(
-    label_of(law, key) for law, keys in KEYS.items() for key in keys
+RULE_LABELS: tuple[str, ...] = tuple(
+    label_of(law, key) for law, keys in RULE_KEYS.items() for key in keys
+)
+CALIBRATION_LABELS: tuple[str, ...] = (
+    *(label_of(law, key) for law, keys in KEYS.items() for key in keys),
+    *RULE_LABELS,
 )
 LADDER_LABELS: tuple[str, ...] = (
     "nice_g1_contrast",

@@ -27,21 +27,26 @@ The declared run is committed. The artifacts in this directory are its results.
 The module `tests/studies/canonical_parametric_gformula.py` declares the reading before any run.
 Each gated calibration cell is sized for a pass chance of at least 0.95 at its shrunk SE ratio
 and at least 0.925 with the posterior SD of that ratio counted. The expected count of
-finite-sample reds is 1.26 over 114 gated cells, and the chance of at least one is 0.72. The count
-includes the 42 derived-control cells. Two reds read as expected. A red
+finite-sample reds is 1.31 over 120 gated cells, and the chance of at least one is 0.73. The count
+includes the 46 derived-control cells and the rule cells of `G2` and `G5`. Two reds read as
+expected. A red
 calibration row is a finite-sample red only when its 99% SE-ratio interval contains 1, its
 coverage is consistent with 0.95, and the diagnosis finds no defect. Any other red row is a
 defect suspect. The `mc_removed` cells report and carry no verdict.
 
 ### Result of the declared run
 
-The run has 119 property cells, and 118 pass. One cell is red:
+The run at `b778e4dd` has 125 property cells, and 124 pass. It is a complete rerun that adds the
+rule cells of `G2` and `G5` and writes every row under the shipped intervals: a continuous
+estimate takes the skew-widened t (`docs/technical-reference/inference.md`). Against the previous
+run, every estimate and standard error is unchanged, the intervals move, no verdict changes, and
+the largest coverage change of a property cell is 0.0084. One cell is red, as before:
 `interval_calibration/nice_g1_treat_all__correctly_specified` (n = 2,000, 2,400 replications).
 
 | quantity | value |
 | --- | --- |
 | SE ratio | 0.9619, with a 99% interval of 0.9259 to 1.0000. The band is 0.93 to 1.07 |
-| coverage | 0.9413, with a 99% interval of 0.9278 to 0.9529. The band is 0.92 to 0.98 |
+| coverage | 0.9438, with a 99% interval of 0.9305 to 0.9552. The band is 0.92 to 0.98 |
 | bias | 0.000158, with a standard error of 0.000393 |
 
 The cell reads as finite-sample under the declared reading. The SE-ratio interval contains 1, the
@@ -54,8 +59,20 @@ coverage lies inside its band, and no defect shows. These witnesses support the 
 | the other `G1` calibration cells | 0.972 to 0.993 |
 | the `G1` contrast ladder at n = 2,000, 4,000 and 8,000 | 1.021, 0.986 and 1.006 |
 
-The count agrees with the declaration. The run expected 1.26 reds over 114 gated cells and found
+The count agrees with the declaration. The run expected 1.31 reds over 120 gated cells and found
 one. The roadmap owner `X45-finite-sample` holds the cell.
+
+The six rule cells pass. Each correctly specified cell is inside both bands, and each control
+falls below the SE-ratio band as declared.
+
+| cell | coverage (99% interval) | SE ratio (99% interval) |
+| --- | --- | --- |
+| `nice_g2_rule__correctly_specified` | 0.9421 (0.9287 to 0.9537) | 0.9820 (0.9477 to 1.0192) |
+| `nice_g5_rule__correctly_specified` | 0.9446 (0.9314 to 0.9559) | 0.9966 (0.9617 to 1.0353) |
+| `nice_g2_rule__shrunken_se_control` | 0.8271 | 0.6874 (0.6633 to 0.7136) |
+| `nice_g2_rule__noise_control` | 0.8246 | 0.7053 (0.6808 to 0.7333) |
+| `nice_g5_rule__shrunken_se_control` | 0.8250 | 0.6976 (0.6728 to 0.7246) |
+| `nice_g5_rule__noise_control` | 0.8292 | 0.7082 (0.6849 to 0.7351) |
 
 ### Recorded fitting failures
 

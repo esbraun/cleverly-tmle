@@ -613,6 +613,12 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("validation/refute.py", "_future_history"): "after _refuse_future_treatment",
     ("validation/refute.py", "_future_treatment_fit"): "after _refuse_future_treatment",
     ("validation/refute.py", "_refuse_future_treatment"): "a mixed node is refused first",
+    ("survival/_longitudinal_data.py", "ContinuousLongitudinalData.previous_treatment"): (
+        "a continuous-time visit's treatment, one binary column with no node slots"
+    ),
+    ("survival/_longitudinal_data.py", "ContinuousLongitudinalData.baseline_view"): (
+        "a continuous-time visit's treatment, one binary column with no node slots"
+    ),
 }
 
 

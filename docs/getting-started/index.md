@@ -21,15 +21,15 @@ that match it.
 
 | your question | guide | example |
 | --- | --- | --- |
-| the time until an event, such as readmission, when people leave follow-up or another event comes first | [time-to-event outcomes](../user-guide/survival.md) | [readmission when death can come first](../examples/longitudinal-survival.ipynb) |
-| a treatment repeated over time, where earlier treatment changes later choices | [longitudinal treatment](../user-guide/longitudinal.md) | [weekly offer policies](../examples/sequential-offers.ipynb) |
-| a policy rather than "everyone against no one", such as offering only high-risk patients or raising each patient's chance of an offer | [estimands and interventions](../user-guide/estimands.md) | [three offer policies](../examples/interventions.ipynb) |
-| a continuous dose, such as a discount from 0% to 40% | [a curve over a continuous dose](../user-guide/estimands.md#a-curve-over-a-continuous-dose) | [renewal discounts](../examples/dose-response.ipynb) |
-| an effect that changes with a characteristic such as age, or a rule for who should be treated | [effects that change with a baseline column](../user-guide/conditional-effects.md), [learned treatment rules](../user-guide/estimands.md#learned-treatment-rules) | [who gains most from a coupon](../examples/conditional-effects.ipynb), [who should get the offer](../examples/treatment-rules.ipynb) |
+| the time until an event, such as readmission, when people leave follow-up or another event comes first | [time-to-event outcomes](../user-guide/topics/time-to-event.md) | [readmission when death can come first](../examples/longitudinal-survival.ipynb) |
+| a treatment repeated over time, where earlier treatment changes later choices | [treatments over time](../user-guide/topics/treatments-over-time.md) | [weekly offer policies](../examples/sequential-offers.ipynb) |
+| a policy rather than "everyone against no one", such as offering only high-risk patients or raising each patient's chance of an offer | [estimands](../user-guide/topics/estimands.md) | [three offer policies](../examples/interventions.ipynb) |
+| a continuous dose, such as a discount from 0% to 40% | [a curve over a continuous dose](../user-guide/policies.md#a-curve-over-a-continuous-dose) | [renewal discounts](../examples/dose-response.ipynb) |
+| an effect that changes with a characteristic such as age, or a rule for who should be treated | [conditional effects](../user-guide/conditional-effects.md), [learned treatment rules](../user-guide/learned-rules.md) | [who gains most from a coupon](../examples/conditional-effects.ipynb), [who should get the offer](../examples/treatment-rules.ipynb) |
 | a small randomized trial plus outside records on the same outcome | [a trial with external data](../user-guide/trial-with-external-data.md) | [a small pilot with outside records](../examples/trial-with-external-data.ipynb) |
 | the effect with a later step, such as a follow-up visit, fixed for everyone (a controlled direct effect) | [controlled direct effects](../user-guide/estimands.md#controlled-direct-effects) | [gain over current practice](../examples/population-impact.ipynb) |
 
 The [examples](../examples/index.md) list every analysis by situation. The
 [workflow](../workflow.md) walks through the stages of one analysis, and
-[read and save results](../user-guide/results-assessment.md) explains how to read a
+[read cleverly's output](../user-guide/reading-output.md) explains how to read a
 fitted result.

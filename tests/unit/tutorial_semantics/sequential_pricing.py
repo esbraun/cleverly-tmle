@@ -1524,7 +1524,7 @@ def _check_phrase_rules() -> None:
     # The association heading and reading claim an association only.
     assert "These tables show associations only" in markdown["association-reading"]
     assert "Engagement is therefore" not in markdown["association-reading"]
-    # Each check the page tries to break the result with is named in plain words.
+    # Each refutation check the page runs is named in plain words.
     refute_text = markdown["refute-heading"]
     for test in ("placebo", "subset", "random_common_cause", "bootstrap_stability"):
         assert f"`{test}`" in refute_text, test

@@ -23,6 +23,7 @@ studies declare neither, so each has a page and no grid row:
 - [CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws](learned-rule-cvtmle-boundary.md): no property cell and no comparator in its record; published under the `reporting` policy.
 - [collaborative TMLE of a risk curve](survival-ctmle.md): no property cell and no comparator in its record; published under the `reporting` policy.
 - [continuous-time survival switched variance](continuous-survival-variance.md): no property cell and no comparator in its record; published under the `gated` policy; the reason is recorded in `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py`.
+- [continuous-time longitudinal TMLE](continuous-time-longitudinal.md): no property cell and no comparator in its record; published under the `gated` policy; the reason is recorded in `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py`.
 - [Adaptive TMLE with external data](adaptive-tmle-trial.md): no property cell and no comparator in its record; published under the `gated` policy; the reason is recorded in `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py`.
 - [Adaptive TMLE under selective enrollment](adaptive-tmle-selective.md): no property cell and no comparator in its record; published under the `gated` policy; the reason is recorded in `GATED_OFF_GRID` in `tests/unit/test_method_evidence.py`.
 <!-- /generated -->
@@ -227,6 +228,7 @@ structural-nested-mean
 continuous-survival-causes
 continuous-survival-functionals
 continuous-survival-variance
+continuous-time-longitudinal
 continuous-time-survival
 cross-fitted-competing-risk-longitudinal-tmle
 cross-fitted-point-treatment-survival

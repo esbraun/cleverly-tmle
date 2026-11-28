@@ -125,6 +125,10 @@ categorized API tables.
    cleverly.survival.ContinuousSurvivalResult
    cleverly.survival.ContinuousSurvivalRecord
    cleverly.survival.CoxHazard
+   cleverly.survival.ContinuousLongitudinalTMLE
+   cleverly.survival.ContinuousLongitudinalData
+   cleverly.survival.ContinuousLongitudinalResult
+   cleverly.survival.ContinuousLongitudinalRecord
    cleverly.ParameterEstimate
    cleverly.AssessmentCapability
    cleverly.AssessmentReport
@@ -315,6 +319,9 @@ categorized API tables.
    cleverly.datasets.point_survival_truth
    cleverly.datasets.make_population_impact
    cleverly.datasets.population_impact_truth
+   cleverly.datasets.make_discharge_practices
+   cleverly.datasets.discharge_practices_truth
+   cleverly.datasets.discharge_practices_protocol
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol
@@ -338,6 +345,12 @@ categorized API tables.
    cleverly.datasets.treatment_rule_value
    cleverly.datasets.treatment_rule_effect
    cleverly.datasets.learned_rule_truth
+   cleverly.datasets.make_two_decision_rules
+   cleverly.datasets.learned_regimen_truth
+   cleverly.datasets.two_decision_rules_protocol
+   cleverly.datasets.make_home_support
+   cleverly.datasets.home_support_truth
+   cleverly.datasets.home_support_effect
    cleverly.datasets.win_back
    cleverly.datasets.win_back_then_ship
    cleverly.datasets.make_sequential_pricing

@@ -1953,7 +1953,9 @@ arm. The summary prints the target and these shares.
 | `n_bootstrap=`, `refit()`, the truncation curve and the refit surfaces, a subset refutation | refused (F27). Each refit relearns the rules, so it targets other rule pairs |
 | `DynamicRegimen(..., rule_kind="estimated")` | refused. The message names `LearnedRegimen` |
 
-A learned regimen is fitted alone, so no simultaneous band is formed.
+A learned regimen is fitted alone, so no simultaneous band is formed. The
+[two-decision rules tutorial](../examples/two-decision-rules.ipynb) fits it on the law of the
+registered study and reads the rule record.
 
 `tests/unit/test_longitudinal_learned_regimen.py` checks the construction. With stubs that
 return the rule pair $(1\{W_1 > 0.2\}, 1\{L_2 > -0.1\})$, the fit equals the known

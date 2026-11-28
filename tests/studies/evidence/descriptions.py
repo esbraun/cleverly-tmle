@@ -835,6 +835,7 @@ _PGF_TARGETS = {
     "g2_treat_none": "law G2, mean under no treatment",
     "g2_policy_b": "law G2, mean under the known policy that treats with probability 0.3 + 0.4 B_t",
     "g2_contrast": "law G2, treatment at all three times against none",
+    "g2_rule": "law G2, mean under the rule A_t = 1{Z_t > 0} on the Gaussian covariate",
     "g3_relapse_h2": "law G3, relapse incidence by t = 2 under treatment at all four times",
     "g3_relapse_h4": "law G3, relapse incidence by t = 4 under treatment at all four times",
     "g3_death_h4": "law G3, death incidence by t = 4 under treatment at all four times",
@@ -847,6 +848,7 @@ _PGF_TARGETS = {
     "g5_treat_none": "law G5, mean under no treatment",
     "g5_odds_x2": "law G5, mean under the odds tilt of two",
     "g5_contrast": "law G5, treatment at all three times against none",
+    "g5_rule": "law G5, mean under the rule A_1 = L_1, then A_t = 1{S_t = 1} at nodes 2 and 3",
 }
 _PGF_PAIRS = {
     "g1_treat_all": _PGF_TARGETS["g1_treat_all"],
@@ -11886,6 +11888,51 @@ for _label in ("l1_rd", "l3_rd"):
         "the default libraries, each of which holds the true model",
         "SE ratio and coverage intervals both inside their calibration bands",
     )
+
+#: ``continuous-time-longitudinal`` (X6 part (e)): the continuous-time longitudinal TMLE in its
+#: shipped default on law CT and its whole-day version.  The names are those of
+#: ``tests/studies/continuous_time_longitudinal.py`` and its law module.
+_LONGITUDINAL_SLUG = "continuous-time-longitudinal"
+IMPLEMENTATIONS["cleverly-continuous-time-longitudinal"] = (
+    "`cleverly` ContinuousLongitudinalTMLE: the TMLE of Rytgaard, Gerds and van der Laan (2022) "
+    "for a binary treatment and covariates that change at irregular visits, one backward pass "
+    "per regime, with the influence-curve standard error"
+)
+_LONGITUDINAL_FIT = (
+    "the default libraries, ten outer folds and five inner folds, n = 1,000, target days 10, 20 "
+    "and 30"
+)
+STUDY_SCENARIOS.update(
+    {
+        (_LONGITUDINAL_SLUG, "day_cf"): (
+            "law CT on whole days: a binary covariate and treatment that change at visits, two "
+            "causes and censoring that depend on both, events recorded by day so that ties occur "
+            f"every day; always, never and the rule 'treat when L = 1'; {_LONGITUDINAL_FIT}"
+        ),
+        (_LONGITUDINAL_SLUG, "cont_cf"): (
+            "law CT in continuous time: a binary covariate and treatment that change at visits, "
+            f"two causes and censoring that depend on both; always and never; {_LONGITUDINAL_FIT}"
+        ),
+    }
+)
+_LONGITUDINAL_REGIMES = {
+    "always": "treatment at every visit",
+    "never": "no treatment at any visit",
+    "rule": "the rule that treats when the last covariate is 1",
+}
+for _time in ("10", "20", "30"):
+    for _cause in (1, 2):
+        for _regime, _words in _LONGITUDINAL_REGIMES.items():
+            STUDY_ESTIMANDS[
+                (_LONGITUDINAL_SLUG, f"cif_regimen[{_regime}, cause{_cause} @ t={_time}]")
+            ] = f"risk of cause {_cause} by day {_time} under {_words}"
+        for _regime in ("always", "rule"):
+            STUDY_ESTIMANDS[
+                (_LONGITUDINAL_SLUG, f"ate_regimen[{_regime} vs never, cause{_cause} @ t={_time}]")
+            ] = (
+                f"difference in the risk of cause {_cause} by day {_time} between "
+                f"{_LONGITUDINAL_REGIMES[_regime]} and no treatment at any visit"
+            )
 
 #: ``hazard-mtp``: a modified treatment policy at the baseline decision on the hazard path, one
 #: walk per policy.  The laws and fits are those of ``tests/studies/hazard_mtp_law.py``, which this

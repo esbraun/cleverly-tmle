@@ -250,6 +250,27 @@ def declared_stack(stack: Mapping[str, str]) -> Iterator[None]:
         _DECLARED_STACK = previous
 
 
+#: The shards a merged run joins, which :func:`merged_shards` sets.
+_SHARDS: list[dict[str, Any]] | None = None
+
+
+@contextlib.contextmanager
+def merged_shards(shards: Iterable[Mapping[str, Any]]) -> Iterator[None]:
+    """Record ``shards`` in each manifest written inside, as ``generated_with.shards``.
+
+    A declared run split across machines (``continuous-time-longitudinal``'s ``--shard`` and
+    ``--merge``) fits each shard at the same commit and joins their checkpoints.  Each entry
+    names a shard, the commit it ran at and its runtime.  Every other field of the manifest is
+    the one an unsharded run writes.
+    """
+    global _SHARDS
+    previous, _SHARDS = _SHARDS, [dict(shard) for shard in shards]
+    try:
+        yield
+    finally:
+        _SHARDS = previous
+
+
 def study_module_hashes(record: StudyRecord) -> dict[str, str]:
     """The study's own modules, so a reader can tell which analysis wrote these numbers.
 
@@ -307,6 +328,9 @@ def write_manifest(
     records ``generated_with.declared_stack``: the study's declared versions and each one the
     run differs from.
 
+    Inside :func:`merged_shards`, it records ``generated_with.shards``: the shards a merged run
+    joined, with the commit and runtime of each.
+
     A record whose comparator is pending (:attr:`StudyRecord.comparator_state`) records no
     reference provenance and an empty ``reference_sha256``, because no reference ran.  Its
     ``comparator`` block names the pending implementation, the reason, the declared reference
@@ -352,6 +376,7 @@ def write_manifest(
                 if record.reference is None
                 else {"implementation": record.reference, **dict(reference_metadata or {})}
             ),
+            **({} if _SHARDS is None else {"shards": [dict(shard) for shard in _SHARDS]}),
         },
         "configuration": {
             "replicates": record.replicates,

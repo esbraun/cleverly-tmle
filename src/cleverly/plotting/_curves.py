@@ -415,9 +415,12 @@ def curve(
             title=title or None,
             ax=ax,
         )
+    from ..survival.longitudinal_result import ContinuousLongitudinalResult
     from ..survival.result import ContinuousSurvivalResult
 
-    if isinstance(obj, ContinuousSurvivalResult):
+    # A continuous-time survival fit, or a continuous-time longitudinal fit with one arm per
+    # regime: both report their risks at the target times through the same reader.
+    if isinstance(obj, (ContinuousSurvivalResult, ContinuousLongitudinalResult)):
         if ax is not None:
             raise ValueError("curve() draws a continuous-time survival fit in several panels")
         if outcome_label is not None:

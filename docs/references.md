@@ -2842,8 +2842,16 @@ support a shipped claim. Each item states the remaining source work.
   of intervention-specific mean outcomes*](https://doi.org/10.1214/21-AOS2114), *Annals of
   Statistics* 50(5):2469–2491, DOI 10.1214/21-AOS2114. The hazard fit with a treatment at several
   nodes is the discrete-time case of its Theorem 1, display (19), with remainder display (13) and
-  Theorem 2. The hazard fit with covariates after baseline follows its form. Cited by roadmap
-  item X6.
+  Theorem 2. The hazard fit with covariates after baseline follows its form.
+  `ContinuousLongitudinalTMLE` estimates its display (8) with $Y = N^{d_j}(\tau)$ and reads the
+  influence-curve variance of display (27). Its supplement (DOI
+  [10.1214/21-AOS2114SUPP](https://doi.org/10.1214/21-AOS2114SUPP)) holds the tangent-space and
+  projection lemmas (Lemma S4, pp. S4-S5; Lemma S7, pp. S6-S9; assembly in S1.5, pp. S9-S10),
+  the exclusion of simultaneous jumps (S1.6, p. S12), the visit-indexed nuisances (display (17),
+  Assumption S1, p. S21), the Donsker condition on nuisances of bounded sectional variation
+  (Lemma S8, S2.4, p. S23) that the in-sample refusal cites, and the recursion over pooled
+  event times (S3.2). The coefficient for several causes is a derivation, not the paper's. Cited
+  by roadmap item X6.
 - Rytgaard, Eriksson & van der Laan (2023), [*Estimation of time-specific intervention effects on
   continuously distributed time-to-event outcomes by targeted maximum likelihood
   estimation*](https://doi.org/10.1111/biom.13856), *Biometrics* 79(4):3038–3049, DOI
