@@ -816,6 +816,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
     )
     from tests.studies.ovb_limit_coverage import STUDY as OVB_LIMIT_COVERAGE
+    from tests.studies.point_shift_learned_density import STUDY as POINT_SHIFT_LEARNED_DENSITY
     from tests.studies.projection_compositions import STUDY as PROJECTION_COMPOSITIONS
     from tests.studies.projection_evidence import STUDY as PROJECTION_EVIDENCE
     from tests.studies.projection_methods import STUDY as PROJECTION_METHODS
@@ -933,6 +934,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_STOCHASTIC_REGIMES,
         CANONICAL_SHIFT_POLICIES,
         POLICY_POINT_MTP,
+        POINT_SHIFT_LEARNED_DENSITY,
         MTP_DENSITY_TAILS,
         CANONICAL_INCREMENTAL_INTERVENTIONS,
         CANONICAL_LTMLE,

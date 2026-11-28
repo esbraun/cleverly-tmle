@@ -132,6 +132,7 @@ The test fails on four states.
 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) | 2 | default simultaneous bands across shipped fit shapes |
 | [`F4-calibration-draws`](../../roadmap.md#red-cell-owners) | 1 | randomized multi-arm missing-outcome DR-TMLE |
 | [`composite-high-arm`](../../roadmap.md#red-cell-owners) | 2 | observational missing-data DR-TMLE with a composite indicator |
+| [`X121-learned-density-finite-sample`](../../roadmap.md#red-cell-owners) | 1 | A point additive shift with a learned density |
 | [`X39-below-tail-size`](../../roadmap.md#red-cell-owners) | 2 | sequentially doubly robust longitudinal estimation, long-horizon sequentially doubly robust estimation |
 | [`X8-logit-small-stratum`](../../roadmap.md#red-cell-owners) | 3 | stratified incremental and MSM targeting, Small-sample Wald intervals |
 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | identity-link MSM with baseline strata |
@@ -163,7 +164,7 @@ The test fails on four states.
 | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) | 1 | kernel-smoothed dose-response CV-TMLE against npcausal ctseff |
 | [`X54-supplement-width`](../../roadmap.md#red-cell-owners) | 2 | the boundary-node supplement of LTMLE |
 | [`X54-training-floor`](../../roadmap.md#red-cell-owners) | 3 | the centred fold cluster variance at few clusters per fold |
-| total | 288 | 47 studies |
+| total | 289 | 48 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -227,6 +228,7 @@ same text as the "measured" column of its study page.
 | [Small-sample Wald intervals](small-sample-wald-intervals.md) | property | `heldout_coverage/ho_sparse_treat_ate` | positive | its own rule | lower leg 0.9124 to 0.9426, shown 0.9124 to 0.9426 | [`F3-normal-reference`](../../roadmap.md#red-cell-owners) |
 | [kernel-smoothed dose-response CV-TMLE against npcausal ctseff](dose-response-npcausal.md) | paired | `linear_gaussian/dose_response[h=2,a=3.5]` | paired | unaccounted: failure accounting: worst case fails | difference -0.000282 to 0.000563 within 0.0045, RMSE ratio bound 1.0487 vs 1.1000, coverage difference bound -0.0038 vs -0.0250, calibration excess bound 0.0447 vs 0.0500, resolution 0.0165, failures 6 of 4800 (worst case fails) | [`X93-failure-worst-case`](../../roadmap.md#red-cell-owners) |
 | [ordinary point modified treatment policies](point-modified-treatment-policies.md) | property | `interval_calibration/halve__correctly_specified` | positive | its own rule | coverage 0.9485 to 0.9713, SE ratio 1.0017 to 1.0886, empirical efficiency ratio 0.9202 to 1.0000, reported efficiency ratio 1.0003 to 1.0033 | [`mtp-point-calibration`](../../roadmap.md#red-cell-owners) |
+| [A point additive shift with a learned density](point-shift-learned-density.md) | truth | `cleverly-point-shift-learned-density/shift_law/in_sample_learned: ate_policy[+1.0 uncapped vs current practice]` | cleverly-point-shift-learned-density | its truth gate | bias -0.0023 to 0.0013, coverage 0.8967, SE ratio 0.8025 | [`X121-learned-density-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `interval_calibration/static__correctly_specified` | positive | its own rule | coverage 0.9241 to 0.9499, SE ratio 0.9263 to 0.9985, empirical efficiency ratio 0.9855 to 1.0615, reported efficiency ratio 0.9783 to 0.9899 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `targeting_necessity/dynamic__targeted` | positive | the family's joint clause | bias -0.0025 to 0.0019, margin 0.0075 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `targeting_necessity/dynamic__untargeted` | control | the family's joint clause | bias 0.0229 to 0.0284, margin 0.0093 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |

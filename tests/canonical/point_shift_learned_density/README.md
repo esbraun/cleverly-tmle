@@ -1,9 +1,12 @@
 # A point additive shift with a learned density
 
-This directory will hold the reporting study `point-shift-learned-density` (X121 part b2). The
-declaration is committed before any run. No declared run has been made, and the study is not yet
-in the evidence register. The design, the sizing rule and the reading declared in advance are in
-`tests/studies/point_shift_learned_density.py`.
+This directory holds the reporting study `point-shift-learned-density` (X121 part b2), declared
+before any run and registered after the declared run at `87bbec27`. Every primary and
+calibration verdict of the cross-fitted arm passed, so the study adds the support row
+`T-point-shift-learned-density`; the in-sample learned `+1.0` contrast is red, owned by
+`X121-learned-density-finite-sample`. The results are on
+`docs/technical-reference/method-evidence/point-shift-learned-density.md`. The design, the sizing
+rule and the reading declared in advance are in `tests/studies/point_shift_learned_density.py`.
 
 | part | declaration |
 | --- | --- |

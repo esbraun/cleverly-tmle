@@ -78,6 +78,7 @@ __all__ = [
     "classify_structural_fit",
     "combine_support",
     "default_library_learner",
+    "density_learner_signature",
     "in_sample_learned_rule_learners",
     "learner_family",
     "longitudinal_key",
@@ -611,6 +612,40 @@ def density_learner_family(learner: Any) -> Literal["known", "parametric", "adap
     if learner is not None and getattr(type(learner), DENSITY_MARKER, None) == "known":
         return "known"
     return learner_family(learner)
+
+
+def density_learner_signature(learner: Any) -> str:
+    """The class and settings of the treatment learner of a cross-fitted density-route policy fit.
+
+    A learned density's ratio error moves the interval of a policy fit, and how much depends on
+    the learner's settings as well as its class: a cross-fitted default booster reports an SE
+    several times the spread that the regularized booster of ``point-shift-learned-density``
+    reports correctly (X121). The signature is the learner's qualified class name and every
+    constructor parameter except ``random_state``, so a row of one measured learner covers only
+    fits with exactly those settings. The default learner (``None``) reads ``"default"`` and a
+    learner whose class declares :data:`DENSITY_MARKER` as ``"known"`` reads ``"known"``.
+
+    Parameters
+    ----------
+    learner : object or None
+        The treatment learner as passed to the estimator.
+
+    Returns
+    -------
+    str
+        The signature.
+    """
+    if learner is None:
+        return "default"
+    cls = type(learner)
+    if getattr(cls, DENSITY_MARKER, None) == "known":
+        return "known"
+    get_params = getattr(learner, "get_params", None)
+    params = get_params(deep=False) if callable(get_params) else {}
+    settings = ", ".join(
+        f"{name}={value!r}" for name, value in sorted(params.items()) if name != "random_state"
+    )
+    return f"{cls.__module__}.{cls.__qualname__}({settings})"
 
 
 def _parametric_classes() -> tuple[type, ...]:
@@ -1268,6 +1303,17 @@ def point_key(
             # adds error the influence-curve SE omits (X121), so a row of a known density
             # never covers a learned one.
             options["density_learner_family"] = density_learner_family(estimator.treatment_learner)
+        elif (
+            options["ratio"] == "density"
+            and scheme != "in_sample"
+            and treatment != ("vector",)
+            and data.is_continuous_treatment
+        ):
+            # Out of fold the interval depends on the learned density's settings and bins as
+            # well as its class (X121 b2): the learned-density row measured one regularized
+            # booster on 40 core bins, so a row covers only those settings.
+            options["density_learner"] = density_learner_signature(estimator.treatment_learner)
+            options["density_bins"] = getattr(estimator, "density_bins", None)
         from .estimators._tuned_policies import declares_tuned
 
         if declares_tuned(tuple(getattr(estimator, "policies", None) or ())):
