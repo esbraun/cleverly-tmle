@@ -86,11 +86,7 @@ different pages and run in parallel.
 
 | item | tier | readiness | depends on |
 | --- | --- | --- | --- |
-| [X115](#x115-technical-reference-shared-inference-validation-and-scope-pages) Technical reference: shared inference, validation and scope pages | docs | no new theory | the shipped inference statuses, refusals and assessment capabilities |
 | [X116](#x116-technical-reference-method-pages) Technical reference: method pages | docs | no new theory | X6 part (d) for the continuous-time bootstrap sentences |
-| [X114](#x114-new-user-guide-pages-variable-importance-run-time-and-memory-plots) New user-guide pages: variable importance, run time and memory, plots | docs | no new theory | X125 for the variable-importance label |
-| [X118](#x118-point-treatment-example-notebooks) Point-treatment example notebooks | docs | no new theory | the X108 notebook checks, delivered |
-| [X119](#x119-over-time-example-notebooks) Over-time example notebooks | docs | no new theory | the open MTP density-ratio fix, for the pricing notebook |
 | [X122](#x122-new-tutorials-for-shipped-methods-that-no-example-fits) New tutorials for shipped methods that no example fits | docs | no new theory | X6 part (d) for the exact-time tutorial |
 | [X125](#x125-registered-study-of-variable-importance) Registered study of variable importance | docs | a source read on multiplicity control across dependent candidate fits comes first | the shipped `variable_importance` |
 
@@ -642,23 +638,6 @@ measured the replacements, which closed the former owners `F3-difference-near-bo
 The sections below give one contract for each open item. Their physical order does not override
 the tiers of the main roadmap.
 
-### X115. Technical reference: shared inference, validation and scope pages
-
-The shared pages call a comparator-backed study pending, count seven refutation operations where
-ten ship, quote a removed replay error, and say the band is on for every estimator. The scope
-page states one cluster floor, says a cap fitted from data is refused, and has no refusal index for
-several shipped estimators.
-
-- (a) Correct the stale statements and replace drifting counts with lists or tested counts.
-- (b) A bootstrap section, the variance sources, the continuous-time E-value path and the default
-  gamma grid.
-- (c) A table of the operations each result family runs, generated from the assessment
-  capabilities and pinned by a test.
-- (d) Refusal and status indexes: data-tuned caps, every inference status, known-score forms,
-  two-arm estimators, the simulated confounder surface, sampled refutation, the continuous-time
-  and survival doubly robust fits.
-- (e) The natural-extension verdict page as a dated audit or a living index.
-
 ### X116. Technical reference: method pages
 
 The longitudinal page says DR-TMLE has no longitudinal derivation though the survival form ships;
@@ -674,40 +653,18 @@ comparison is pending after it ran with three red cells.
 - (d) Dose-response, projection and DR-TMLE pages: the comparison result, retired labels,
   cross-links and an assessment table.
 
-### X114. New user-guide pages: variable importance, run time and memory, plots
-
-Three shipped surfaces have no guide page: variable importance, the run-time and memory controls,
-and the plots as a whole.
-
-- (a) Rank candidate exposures, with one runnable example and its multiplicity statement.
-- (b) Run time and memory: preview, shrink, parallelize, limit memory, resume.
-- (c) Which plot answers which question, by result family, with the display limits.
-
-### X118. Point-treatment example notebooks
-
-One part per notebook, one change each, under the shared notebook checks that X108 delivered:
-`point-treatment-tmle`, `randomized-pilot`, `twins-causal-inference`, `cross-fitting`,
-`collaborative-tmle`, `survey-nonresponse`, `population-impact` and `plots`. Each corrects its stale
-claims, runs the checks and figures its scenario calls for but does not show (for example the
-sensitivity bounds on a randomized pilot, the influence figure and cluster bootstrap on shared
-teams, the declared point bound on the collaborative fit), and re-executes once.
-
-### X119. Over-time example notebooks
-
-One part per notebook: `weekly-outcomes`, `sequential-offers`, `sequential-pricing`,
-`schedules-and-intensity` and `model-based-over-time`. Each corrects its stale claims (for example
-a wrong reason for a refusal, interval counts computed under the old interval), adds the shared
-longitudinal checks and its missing figures, and fits what its conclusion quotes. The pricing
-notebook follows the merged MTP ratio change.
 
 ### X122. New tutorials for shipped methods that no example fits
 
 - (a) Exact event times and competing risks with the continuous-time survival fit.
 - (b) Conditional effects with intervals: projection coefficients, the heterogeneity test, the
-  band, external-score assessment and targeting curves.
-- (c) Sampling weights, strata and missing treatment values on a point treatment.
-- (d) Ranking candidate exposures.
+  band, external-score assessment and targeting curves. Delivered: [subgroup effects](examples/subgroup-effects.ipynb),
+  with the rest on [conditional effects](examples/conditional-effects.ipynb).
+- (c) Sampling weights, strata and missing treatment values on a point treatment. Delivered:
+  [sampling weights](examples/sampling-weights.ipynb).
+- (d) Ranking candidate exposures. Delivered: [ranking exposures](examples/ranking-exposures.ipynb).
 - (e) Choosing nuisance learners: the default library, a declared super learner and screening.
+  Delivered: [learner choice](examples/learner-choice.ipynb).
 - (f) A learned rule over two decisions. Delivered: [two decisions after discharge](examples/two-decision-rules.ipynb).
 
 Each follows `docs/development/example-notebooks.md`, on simulated data with a known answer.
