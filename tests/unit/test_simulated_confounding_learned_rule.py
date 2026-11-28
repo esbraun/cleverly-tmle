@@ -128,10 +128,10 @@ def test_a_replay_without_the_frozen_rule_or_folds_fails_the_cell_check(
     validate = request_module.validate_learned_rule_replay
 
     def mutated(fit: Any, estimand: str, key: Any) -> Any:
-        replay, folds = validate(fit, estimand, key)
+        replay, folds, kind = validate(fit, estimand, key)
         if mutation == "relearns_the_rule":
-            return fit.estimator, folds
-        return replay, None
+            return fit.estimator, folds, kind
+        return replay, None, kind
 
     monkeypatch.setattr(request_module, "validate_learned_rule_replay", mutated)
     surface = simulated_confounding(result, estimand=support.NAME, grid=_GRID, random_state=_SEED)

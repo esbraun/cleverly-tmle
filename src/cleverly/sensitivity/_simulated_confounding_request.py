@@ -24,8 +24,7 @@ from ..estimators.base import MEAN_GROUP_ESTIMANDS, TMLEResult
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
 from ..interventions.learned import (
-    OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL,
-    OPTIMAL_RULE_REPLAY_STRATA_REFUSAL,
+    NATURAL_COURSE_TARGET,
     learned_rule_splits_refusal,
     reports_optimal_rule,
 )
@@ -60,8 +59,8 @@ from ._simulated_confounding_incremental import (
     validate_incremental_replay,
 )
 from ._simulated_confounding_learned import (
-    LEARNED_RULE_TARGETS,
-    OPTIMAL_RULE_REPLAY_TARGETS,
+    natural_course_refusal,
+    replay_family,
     validate_learned_rule_replay,
     validate_optimal_rule_replay,
 )
@@ -107,6 +106,10 @@ class _ValidatedRequest:
     #: The realized outer splits every cell refits on, on a learned-rule fit whose replay
     #: holds the fold rules fixed.  ``None`` on every other fit, whose cells draw new folds.
     frozen_folds: tuple[Any, ...] | None = field(default=None, compare=False)
+    #: ``"frozen"`` on a learned-rule fit, whose replay holds the fold rules fixed, and
+    #: ``"relearned"`` on a fit of the value of the optimal rule, whose replay relearns them.
+    #: ``None`` on every other fit.
+    rule_replay: Literal["frozen", "relearned"] | None = None
 
 
 #: The declared estimand type each supported contrast alias must carry.  One map, built
@@ -354,21 +357,14 @@ def _refuse_learned_rule_level(result: Any) -> Refusal | None:
 
 
 def _refuse_optimal_rule(result: Any) -> Refusal | None:
-    """Refuse the compositions of the value of the optimal rule the replay does not build.
+    """Refuse the value of the optimal rule at a level of an intermediate.
 
     The replay of the value of the optimal rule relearns the rule in every cell (X11 (f3)),
-    so each cell estimates the optimal value of its perturbed law.  It refuses a fit beside
-    known regimes, whose regimes and contrasts would be rebuilt beside a relearned rule, a
-    fit with baseline strata, and a fit at a level of an intermediate, which no witness
-    checks.  The fit reports one parameter per regime, so the boundary is fit-wide.
+    beside known regimes and with baseline strata too (X11 (f4)).  It refuses a fit at a
+    level of an intermediate, which no witness checks.  The boundary is fit-wide.
     """
     if not reports_optimal_rule(result):
         return None
-    regimes = result.repeats[0].nuisance.regimes
-    if regimes is not None and len(regimes.names) > 1:
-        return OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL
-    if result.data.has_strata:
-        return OPTIMAL_RULE_REPLAY_STRATA_REFUSAL
     if declares_intermediate(result):
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
@@ -700,8 +696,8 @@ def _eligible_binary_parameter_names(result: Any) -> tuple[str, ...]:
             or fixed_key_axis(key) is not None
             or (key.estimand in INCREMENTAL_TARGETS and key.axis == "ipsi")
             or (
-                key.estimand in LEARNED_RULE_TARGETS | OPTIMAL_RULE_REPLAY_TARGETS
-                and key.axis == "learned_rule"
+                key.axis == "learned_rule"
+                and key.estimand in replay_family(result) - {NATURAL_COURSE_TARGET}
             )
         )
         and _replay_refusal(result.estimator, key.estimand) is None
@@ -1814,13 +1810,20 @@ def _validated_parameter(
     if refusal is not None:
         raise CapabilityError.from_refusal(refusal)
     frozen_folds: tuple[Any, ...] | None = None
+    rule_replay: Literal["frozen", "relearned"] | None = None
     if fixed_axis(key.estimand) is not None:
         estimator = validate_fixed_replay(result, estimand, key)
-    elif key.estimand in OPTIMAL_RULE_REPLAY_TARGETS:
-        # Branches before the frozen replay: the value of the optimal rule relearns the rule.
-        estimator, frozen_folds = validate_optimal_rule_replay(result, estimand, key)
-    elif key.estimand in LEARNED_RULE_TARGETS:
-        estimator, frozen_folds = validate_learned_rule_replay(result, estimand, key)
+    elif key.axis == "learned_rule":
+        # Routed by the fit, not the alias: every alias of a fit of the value of the optimal
+        # rule relearns the rule, and every alias of a learned-rule fit freezes it.
+        if key.estimand == NATURAL_COURSE_TARGET:
+            raise CapabilityError.from_refusal(natural_course_refusal(result, estimand, key))
+        validate = (
+            validate_optimal_rule_replay
+            if reports_optimal_rule(result)
+            else validate_learned_rule_replay
+        )
+        estimator, frozen_folds, rule_replay = validate(result, estimand, key)
     elif treatment_family in {"binary", "categorical"} and key.estimand in INCREMENTAL_TARGETS:
         estimator = validate_incremental_replay(result, estimand, key)
     elif treatment_family in {"binary", "categorical"}:
@@ -1905,4 +1908,5 @@ def _validated_parameter(
         conditioning_code,
         key=key,
         frozen_folds=frozen_folds,
+        rule_replay=rule_replay,
     )

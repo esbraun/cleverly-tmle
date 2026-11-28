@@ -200,6 +200,10 @@ def check_only_declared_axis(
     functional = result.identified_effect.functional
     estimator = result.estimator
     allowed = _AXIS_SLOTS[axis]
+    if axis == "learned_rule" and len(functional.interventions) > 1:
+        # Known regimes declared after the rule are comparators of the rule (X11 (c)), and
+        # the learned-rule replay freezes them (X11 (f4)).
+        allowed = (*allowed, "interventions")
     slots = {slot for names in _AXIS_SLOTS.values() for slot in names}
     if (
         functional.longitudinal

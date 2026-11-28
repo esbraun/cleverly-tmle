@@ -76,8 +76,6 @@ from cleverly.interventions.learned import (
     CONTRAST_TARGETS,
     OPTIMAL_CONTRAST_TARGET,
     OPTIMAL_RULE_BENCHMARK_REFUSAL,
-    OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL,
-    OPTIMAL_RULE_REPLAY_STRATA_REFUSAL,
     OPTIMAL_RULE_TARGET,
     freeze_learned_rule,
     frozen_rule_replay,
@@ -1058,11 +1056,7 @@ class TestTheSensitivityAnalysesOfEachComposition:
     def test_the_replay_admits_or_refuses_with_its_own_reason(self, name: str) -> None:
         _, optimal = _pairs(name)
         refusal = request_module._refuse_optimal_rule(optimal)
-        if name == "known_regimes":
-            assert refusal is OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL
-        elif name == "strata":
-            assert refusal is OPTIMAL_RULE_REPLAY_STRATA_REFUSAL
-        elif name.startswith(("intermediate", "method_intermediate")):
+        if name.startswith(("intermediate", "method_intermediate")):
             assert refusal is not None
             assert "relearning replay at a level of the intermediate" in refusal.condition
             assert "X11 (j4) in docs/roadmap.md" in refusal.condition

@@ -399,6 +399,11 @@ class SimulatedConfoundingResult:
         On a competing-risk fit, the cause whose hazard the latent shifts, or ``None`` when
         it shifts the all-cause event (a panel) or every cause-specific hazard (a
         continuous-time fit).
+    rule_replay : {"frozen", "relearned"} or None
+        On a learned-rule fit, ``"frozen"``: every cell holds each row's realized fold rule
+        fixed, for every alias of the fit.  On a fit of the value of the optimal rule,
+        ``"relearned"``: every cell relearns the rule, for every alias of the fit.  Both
+        keep the known comparators at their stored densities.  ``None`` on every other fit.
 
     Attributes
     ----------
@@ -455,6 +460,7 @@ class SimulatedConfoundingResult:
     replay_models: tuple[str, ...] = ()
     coupling_seed: int | None = None
     outcome_cause: str | None = None
+    rule_replay: Literal["frozen", "relearned"] | None = None
 
     @property
     def target_measure(self) -> Literal["unweighted", "fixed_empirical_tilt"]:
@@ -526,7 +532,7 @@ class SimulatedConfoundingResult:
                     "realized fold rule held fixed, so a cell reads confounding of the value of "
                     "these fixed rules, not of the learned-rule procedure",
                 )
-                if self.estimand.startswith("ey_learned_rule[")
+                if self.rule_replay == "frozen"
                 else ()
             )
             + (
@@ -535,7 +541,7 @@ class SimulatedConfoundingResult:
                     "seed, so a cell reads confounding of the value of the optimal rule, and "
                     "the rule moves with the confounding",
                 )
-                if self.estimand.startswith("ey_optimal_rule[")
+                if self.rule_replay == "relearned"
                 else ()
             )
             + (
@@ -1852,10 +1858,12 @@ def simulated_confounding(
     keeps the normalized weight on its original row. The induced association conditions
     this empirical law on the selected baseline stratum. Numeric calibration uses the full
     original population, or the recorded rows of each target when observations are
-    missing. A learned-rule fit keeps the fit's folds and each row's realized rule in every
-    cell. A fit of the value of the optimal rule keeps the fit's folds and repeat seeds and
-    relearns the rule in every cell, with one relearning refit per stored split; it refuses known
-    regimes beside the rule, baseline strata and an intermediate. A longitudinal fit and a
+    missing. A learned-rule fit keeps the fit's folds, its repeat seeds and each row's realized
+    rule in every cell. A fit of the value of the optimal rule keeps the fit's folds and repeat
+    seeds and relearns the rule in every cell, with one relearning refit per stored split; it
+    refuses an intermediate. Both replays cover every alias of the fit, the known regimes beside
+    the rule (frozen at their stored densities), the contrasts and each baseline stratum, and
+    refuse the natural-course value, which is E[Y]. A longitudinal fit and a
     risk-ratio tilt are refused before calibration, a draw, or a refit, and so are the grid
     stops of ``observation_reads`` and the intermediate axis.
     Execution and the assessment capability share the same ordered reasons.
@@ -1997,14 +2005,13 @@ def simulated_confounding(
     # a stratification variable moves the folds as well. The latent draw keeps its own tagged
     # child seed, so it stays independent of the splits.
     refit_seed = root_seed
-    # The relearning replay of the value of the optimal rule (X11 (f3)) also keeps the fit's
-    # own repeat seeds, so a stochastic learner draws the original learner seeds and a cell
-    # moves only through its perturbed table and the rules that table teaches.  An explicit
-    # random_state other than the fit's own seed redraws them, as on a longitudinal fit.
+    # Every learned-rule replay, frozen or relearning (X11 (o), (f3)), keeps the fit's folds
+    # and also its own repeat seeds, so a stochastic learner draws the original learner seeds
+    # and a cell moves only through its perturbed table (and, on a relearning replay, the
+    # rules that table teaches).  An explicit random_state other than the fit's own seed
+    # redraws them, as on a longitudinal fit.
     frozen_seeds = (
-        _fit_repeat_seeds(result, root_seed)
-        if request.key is not None and request.key.estimand == "ey_optimal_rule"
-        else None
+        _fit_repeat_seeds(result, root_seed) if request.frozen_folds is not None else None
     )
     latent_seed = _latent_child_seed(root_seed)
     latent = _draw_latent(
@@ -2262,4 +2269,5 @@ def simulated_confounding(
             if request.conditioning_code is None
             else result.data.arm_label(request.conditioning_code)
         ),
+        rule_replay=request.rule_replay,
     )

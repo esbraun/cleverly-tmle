@@ -43,7 +43,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.ensemble import RandomForestClassifier
 
 import cleverly.sensitivity.omitted_variable as ov
-from cleverly import CausalStudy, OptimalRuleValue, PointTreatment
+from cleverly import CausalStudy, OptimalRuleContrast, OptimalRuleValue, PointTreatment
 from cleverly.estimators import TMLE
 from cleverly.exceptions import (
     CapabilityError,
@@ -51,18 +51,20 @@ from cleverly.exceptions import (
     PositivityWarning,
     RefusalReason,
 )
-from cleverly.interventions import LearnedRule, Rule
+from cleverly.interventions import LearnedRule, NaturalCourse, Rule, Static, Stochastic
 from cleverly.interventions.learned import (
     OPTIMAL_RULE_BENCHMARK_REFUSAL,
     OPTIMAL_RULE_DOUBLY_ROBUST_NU2,
     OPTIMAL_RULE_LIMITS,
-    OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL,
-    OPTIMAL_RULE_REPLAY_STRATA_REFUSAL,
     OPTIMAL_RULE_TARGET,
     fold_rules,
+    freeze_learned_rule,
+    frozen_rule_replay,
 )
 from cleverly.plotting import confounding, sensitivity
 from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
+from cleverly.sensitivity import _simulated_confounding_request as request_module
+from cleverly.sensitivity._simulated_confounding_request import simulated_confounding_refusal
 from cleverly.sensitivity.simulated_confounding import flipped_mechanism
 from cleverly.utils.bounds import g_bounds_for
 from tests.unit import _learned_rule_support as support
@@ -850,10 +852,281 @@ class TestTheRelearningReplay:
         with pytest.raises(TypeError):
             sensitivity(_surface())
 
-    def test_strata_refuse_before_any_draw(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        ("name", "condition"),
+        [("method_intermediate_0", "relearning replay at a level of the intermediate")],
+    )
+    def test_an_intermediate_refuses_before_any_draw(
+        self, monkeypatch: pytest.MonkeyPatch, name: str, condition: str
+    ) -> None:
+        """The public path refuses it, with its reason and roadmap part."""
+        result = _composition_pairs(name)[1]
+        assert not result.sensitivity.capability("simulated_confounding").available
+        forbid_draw_and_refit(monkeypatch, result.estimator)
+        with pytest.raises(CapabilityError) as caught:
+            estimand = next(key for key in result.estimates if key.startswith("ey_optimal_rule"))
+            simulated_confounding(result, estimand=estimand, grid=_GRID)
+        message = " ".join(str(caught.value).split())
+        assert " ".join(condition.split()) in message
+        assert "X11 (j4) in docs/roadmap.md" in message
+
+
+# ------------------------------------------------- the replay with strata and comparators
+
+
+def _offer(w: Any) -> np.ndarray:
+    """A known random plan: offer the treatment to half the rows with ``W1 > 0``."""
+    p = 0.5 * (np.asarray(w["W1"]) > 0)
+    return np.column_stack([1.0 - p, p])
+
+
+#: The fits of 4.1 and 4.2 of the plan, each study-identified with the known mechanism.
+_COMPOSITIONS: dict[str, tuple[Any, tuple[str, ...] | None]] = {
+    "strata": (OptimalRuleValue(), ("W2",)),
+    "known": (OptimalRuleContrast(against=(Static(1), Static(0))), None),
+    "plan_natural": (
+        OptimalRuleContrast(
+            against=(Stochastic(_offer, name="offer", density_kind="known"), NaturalCourse())
+        ),
+        None,
+    ),
+    "known_strata": (OptimalRuleContrast(against=(Static(1), Static(0))), ("W2",)),
+}
+
+#: The stratum cells of one refit differ by 0.032, 0.064, 0.055 and 0.023 on the four
+#: cells of the strata fit (probe 3 and this fixture alike); the margin is half the smallest.
+W_F4S3_STRATUM_GAP = 0.01
+
+
+@cache
+def _composition(name: str, repeats: int = 1) -> Any:
+    estimand, strata = _COMPOSITIONS[name]
+    design = {} if strata is None else {"strata": strata}
+    return (
+        _study(support.law_frame(n=403), **design)
+        .identify(estimand)
+        .estimate(
+            outcome_learner=support.outcome_learner(),
+            treatment_learner=support.treatment_learner(),
+            n_folds=5,
+            cv_evaluation=True,
+            simultaneous=False,
+            random_state=0,
+            repeats=repeats,
+        )
+    )
+
+
+def _replayed(result: Any) -> list[str]:
+    """Every alias of the fit but the natural-course value, which the replay refuses."""
+    return [alias for alias in result.estimates if not alias.startswith("ey_natural_course[")]
+
+
+@cache
+def _composition_surfaces(name: str, repeats: int = 1) -> dict[str, Any]:
+    result = _composition(name, repeats)
+    return {
+        alias: simulated_confounding(result, estimand=alias, grid=_GRID)
+        for alias in _replayed(result)
+    }
+
+
+def _check_cells_are_relearning_refits(result: Any, surfaces: dict[str, Any]) -> None:
+    """Every nonzero cell of every alias is that alias of the manual relearning refit."""
+    first = next(iter(surfaces.values()))
+    for index, cell in enumerate(first.cells):
+        if index == 0:
+            continue
+        manual = _relearned(result, _perturbed(result, first, cell))
+        for alias, surface in surfaces.items():
+            assert surface.cells[index].estimate == pytest.approx(manual[alias].psi, abs=1e-12), (
+                alias
+            )
+
+
+class TestTheRelearningReplayWithStrata:
+    """W-f4s1 to W-f4s5 of the plan (X11 (f4a)), with the mutation controls."""
+
+    def test_the_anchor_and_the_manual_refit_reproduce_every_alias(self) -> None:
+        """W-f4s1."""
+        result, surfaces = _composition("strata"), _composition_surfaces("strata")
+        assert len(surfaces) == 3
+        manual = _relearned(result, result.data)
+        for alias, surface in surfaces.items():
+            assert surface.complete and surface.rule_replay == "relearned"
+            assert surface.cells[0].estimate == result[alias].psi
+            assert manual[alias].psi == result[alias].psi
+
+    @pytest.mark.parametrize("repeats", [1, 2])
+    def test_every_cell_of_every_alias_is_the_relearning_refit(self, repeats: int) -> None:
+        """W-f4s2."""
+        result = _composition("strata", repeats)
+        assert result.n_repeats == repeats
+        _check_cells_are_relearning_refits(result, _composition_surfaces("strata", repeats))
+
+    def test_the_marginal_cell_is_the_share_mixture_of_the_stratum_cells(self) -> None:
+        """W-f4s3: the stratum mask is read, so a replay that read the marginal fails."""
+        result, surfaces = _composition("strata"), _composition_surfaces("strata")
+        marginal, *strata = surfaces
+        shares = [float(np.mean(result.data.strata == code)) for code in range(2)]
+        for index in range(len(_GRID.treatment_points) * len(_GRID.outcome)):
+            cells = [surfaces[alias].cells[index].estimate for alias in strata]
+            mixture = sum(share * value for share, value in zip(shares, cells, strict=True))
+            assert surfaces[marginal].cells[index].estimate == pytest.approx(mixture, abs=1e-12)
+            assert abs(cells[0] - cells[1]) > W_F4S3_STRATUM_GAP
+
+    def test_one_rule_per_fold_is_relearned_and_shared_by_the_strata(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """W-f4s4: the cell refits of both stratum aliases learn one set of fold rules."""
+        result = _composition("strata")
+        refit = type(result.estimator).refit
+        rules: list[np.ndarray] = []
+
+        def spy(estimator: Any, data: Any, **kwargs: Any) -> Any:
+            out = refit(estimator, data, **kwargs)
+            rules.append(fold_rules(out.repeats[0].nuisance))
+            return out
+
+        monkeypatch.setattr(type(result.estimator), "refit", spy)
+        grid = ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,))
+        for alias in list(result.estimates)[1:]:
+            simulated_confounding(result, estimand=alias, grid=grid)
+        monkeypatch.undo()
+        assert len(rules) == 2 and np.array_equal(rules[0], rules[1])
+        surface = _composition_surfaces("strata")[list(result.estimates)[1]]
+        cell = next(
+            c for c in surface.cells if c.treatment_strength > 0 and c.outcome_strength == 0
+        )
+        manual = fold_rules(
+            _relearned(result, _perturbed(result, surface, cell)).repeats[0].nuisance
+        )
+        assert np.array_equal(rules[0], manual)
+        assert float(np.mean(rules[0] != fold_rules(result.repeats[0].nuisance))) > 0.02
+
+    def test_a_stratum_cell_reads_its_association_on_the_stratum_rows(self) -> None:
+        """W-f4s5: the association is the stratum's own; the population fraction stays 1."""
+        result, surfaces = _composition("strata"), _composition_surfaces("strata")
+        marginal, *strata = surfaces
+        cell_index = next(
+            i for i, c in enumerate(surfaces[marginal].cells) if c.treatment_strength > 0
+        )
+        cell = surfaces[marginal].cells[cell_index]
+        treatment = _perturbed(result, surfaces[marginal], cell).treatment
+        latent = np.random.default_rng(surfaces[marginal].latent_seed).normal(size=result.data.n)
+        for code, alias in enumerate(strata):
+            mask = result.data.strata == code
+            own = surfaces[alias].cells[cell_index]
+            expected = float(np.corrcoef(latent[mask], treatment[mask])[0, 1])
+            assert own.induced_treatment_association == pytest.approx(expected, abs=1e-12)
+            assert (
+                abs(own.induced_treatment_association - cell.induced_treatment_association) > 0.01
+            )
+            assert own.target_population_fraction == 1.0
+
+    @pytest.mark.parametrize("mutation", [None, "freezes_the_rules", "redraws_the_folds"])
+    def test_a_replay_that_freezes_the_rules_or_redraws_the_folds_fails(
+        self, monkeypatch: pytest.MonkeyPatch, mutation: str | None
+    ) -> None:
+        """Mutation controls of W-f4s2: each moves a flipped stratum cell by more than 5e-4.
+
+        The surface runs under a seed other than the fit's, so a replay without the fit's
+        folds draws other folds.  The control, with no mutation, still equals the manual
+        refit, because the folds are frozen and the parametric learners draw no seed.
+        """
+        result = _composition("strata")
+        validate = request_module.validate_optimal_rule_replay
+
+        def mutated(fit: Any, estimand: str, key: Any) -> Any:
+            replay, folds, kind = validate(fit, estimand, key)
+            if mutation == "freezes_the_rules":
+                return frozen_rule_replay(replay, freeze_learned_rule(fit)), folds, kind
+            if mutation == "redraws_the_folds":
+                return replay, None, kind
+            return replay, folds, kind
+
+        monkeypatch.setattr(request_module, "validate_optimal_rule_replay", mutated)
+        alias = list(result.estimates)[2]
+        surface = simulated_confounding(result, estimand=alias, grid=_GRID, random_state=3)
+        assert surface.complete
+        cell = next(c for c in surface.cells if c.treatment_strength > 0)
+        manual = _relearned(result, _perturbed(result, surface, cell))
+        gap = abs(cell.estimate - manual[alias].psi)
+        assert gap < 1e-12 if mutation is None else gap > 5e-4
+
+
+#: The rule cell and each comparator cell of the "known" fit differ by 0.0069 to 0.129 over
+#: the four cells and two comparators; the margin is half the smallest observed gap.
+W_F4R3_COLUMN_GAP = 3e-3
+
+
+class TestTheRelearningReplayBesideComparators:
+    """W-f4r1 to W-f4r8 of the plan (X11 (f4b)), with the mutation controls."""
+
+    @pytest.mark.parametrize("name", ["known", "plan_natural", "known_strata"])
+    def test_the_anchor_and_the_manual_refit_reproduce_every_alias(self, name: str) -> None:
+        """W-f4r1."""
+        result, surfaces = _composition(name), _composition_surfaces(name)
+        manual = _relearned(result, result.data)
+        for alias, surface in surfaces.items():
+            assert surface.complete and surface.rule_replay == "relearned"
+            assert surface.cells[0].estimate == result[alias].psi
+            assert manual[alias].psi == result[alias].psi
+
+    @pytest.mark.parametrize(
+        ("name", "repeats"),
+        [("known", 1), ("known", 2), ("plan_natural", 1), ("known_strata", 1)],
+    )
+    def test_every_cell_of_every_alias_is_the_relearning_refit(
+        self, name: str, repeats: int
+    ) -> None:
+        """W-f4r2: the manual refit evaluates the declared comparators again."""
+        _check_cells_are_relearning_refits(
+            _composition(name, repeats), _composition_surfaces(name, repeats)
+        )
+
+    def test_each_contrast_is_the_rule_cell_minus_the_comparator_cell(self) -> None:
+        """W-f4r3: the sign and the columns of every contrast."""
+        result, surfaces = _composition("known"), _composition_surfaces("known")
+        rule = surfaces["ey_optimal_rule[learned rule]"]
+        for comparator in ("always 1", "always 0"):
+            known = surfaces[f"ey_known_regime[{comparator}]"]
+            contrast = surfaces[f"ate_optimal_rule[learned rule vs {comparator}]"]
+            for index, cell in enumerate(contrast.cells):
+                rule_value = rule.cells[index].estimate
+                known_value = known.cells[index].estimate
+                assert cell.estimate == pytest.approx(rule_value - known_value, abs=1e-12)
+                assert abs(rule_value - known_value) > W_F4R3_COLUMN_GAP
+        assert result.identified_effect.functional.reference is None
+
+    def test_the_comparators_are_frozen_at_the_stored_densities(self) -> None:
+        """W-f4r4, first half: the replay's comparator columns are the stored ones."""
+        result = _composition("plan_natural")
+        key = result.parameter_keys["ey_known_regime[offer]"]
+        replay, folds, kind = request_module.validate_optimal_rule_replay(
+            result, "ey_known_regime[offer]", key
+        )
+        assert kind == "relearned" and len(folds) == 1
+        assert replay.natural_course is result.estimator.natural_course
+        assert replay.learned_rule is result.estimator.learned_rule
+        (frozen,) = replay.interventions
+        stored = np.asarray(result.nuisance.regimes.values)[:, :, 1]
+        assert np.array_equal(frozen.density(result.data), stored)
+
+    def test_a_comparator_whose_callback_changes_is_refused_before_any_draw(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """W-f4r4, the mutation control of the freeze: R5 names the stored draw."""
+        state = {"moved": False}
+
+        def stateful(w: Any) -> np.ndarray:
+            p = (0.6 if state["moved"] else 0.5) * (np.asarray(w["W1"]) > 0)
+            return np.column_stack([1.0 - p, p])
+
+        plan = Stochastic(stateful, name="offer", density_kind="known")
         result = (
-            _study(support.law_frame(n=403), strata=("W2",))
-            .identify(OptimalRuleValue())
+            _study(support.law_frame(n=403))
+            .identify(OptimalRuleContrast(against=(plan,)))
             .estimate(
                 outcome_learner=support.outcome_learner(),
                 treatment_learner=support.treatment_learner(),
@@ -863,32 +1136,191 @@ class TestTheRelearningReplay:
                 random_state=0,
             )
         )
-        row = result.sensitivity.capability("simulated_confounding")
-        assert not row.available
+        alias = "ate_optimal_rule[learned rule vs offer]"
+        assert simulated_confounding_refusal(result, alias) is None
+        state["moved"] = True
+        refusal = simulated_confounding_refusal(result, alias)
+        assert refusal is not None and refusal.reason is RefusalReason.INVALID_DECLARATION
+        text = "declared regime densities disagree with a stored cross-fitting draw"
+        assert text in refusal.condition
+        forbid_draw_and_refit(monkeypatch, result.estimator)
+        with pytest.raises(CapabilityError, match=text):
+            simulated_confounding(result, estimand=alias, grid=_GRID)
+
+    def test_the_rule_is_relearned_beside_the_frozen_comparators(self) -> None:
+        """W-f4r5: a frozen-rule replay moves the rule and contrast cells.
+
+        The comparator cell equals the manual relearning refit's.  It is not free of the
+        rule: one fluctuation targets every column of the regime set together (one clever
+        covariate per column, ``targeting.build_submodel``), so the comparator's targeted
+        value moves by about 1e-4 when the rule column changes, while its initial outcome
+        regression is the same in both refits.  ``simultaneous`` names the bands, not the
+        targeting.
+        """
+        result, surfaces = _composition("known"), _composition_surfaces("known")
+        rule = surfaces["ey_optimal_rule[learned rule]"]
+        index, cell = next(
+            (i, c)
+            for i, c in enumerate(rule.cells)
+            if c.treatment_strength > 0 and c.outcome_strength > 0
+        )
+        data = _perturbed(result, rule, cell)
+        manual = _relearned(result, data)
+        # The learned column's fold rules, every fold's rule at every row, as in W-sc1.
+        learned = fold_rules(manual.repeats[0].nuisance)
+        assert float(np.mean(learned != fold_rules(result.repeats[0].nuisance))) > 0.02
+        folds = [repeat.nuisance.folds for repeat in result.repeats]
+        frozen = frozen_rule_replay(result.estimator, freeze_learned_rule(result)).refit(
+            data, random_state=0, frozen_folds=folds
+        )
+        for alias in (
+            "ey_optimal_rule[learned rule]",
+            "ate_optimal_rule[learned rule vs always 0]",
+        ):
+            assert abs(frozen[alias].psi - surfaces[alias].cells[index].estimate) > 5e-4
+        comparator = "ey_known_regime[always 0]"
+        assert surfaces[comparator].cells[index].estimate == pytest.approx(
+            manual[comparator].psi, abs=1e-12
+        )
+        for arm in (0.0, 1.0):
+            assert np.array_equal(
+                frozen.nuisance.outcome.arms[arm], manual.nuisance.outcome.arms[arm]
+            )
+
+    def test_the_contrast_with_the_natural_course_reads_the_perturbed_outcome(self) -> None:
+        """W-f4r6: rule value minus the fold-weighted mean of the cell's perturbed outcome."""
+        result, surfaces = _composition("plan_natural"), _composition_surfaces("plan_natural")
+        rule = surfaces["ey_optimal_rule[learned rule]"]
+        contrast = surfaces["ate_optimal_rule[learned rule vs natural course]"]
+        folds = result.nuisance.folds
+        for index, cell in enumerate(contrast.cells[1:], start=1):
+            outcome = _perturbed(result, contrast, cell).outcome
+            natural = float(np.mean([outcome[test].mean() for _, test in folds]))
+            assert cell.estimate == pytest.approx(rule.cells[index].estimate - natural, abs=1e-12)
+        moved = next(c for c in contrast.cells if c.treatment_strength == 0 and c.outcome_strength)
+        # Observed 0.042; the margin is about a tenth of it.
+        assert abs(moved.displacement) > 5e-3
+
+    def test_the_natural_course_value_is_refused_before_any_draw(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """R2, with the capability row's text."""
+        result = _composition("plan_natural")
+        alias = "ey_natural_course[natural course]"
+        refusal = simulated_confounding_refusal(result, alias)
+        assert refusal is not None and refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert "it is E[Y], with no counterfactual treatment dependence" in refusal.condition
+        assert "'ate_optimal_rule[learned rule vs natural course]'" in str(refusal.alternative)
+        assert alias not in request_module._eligible_binary_parameter_names(result)
         forbid_draw_and_refit(monkeypatch, result.estimator)
         with pytest.raises(CapabilityError) as caught:
-            simulated_confounding(result, estimand=OPTIMAL, grid=_GRID)
-        assert OPTIMAL_RULE_REPLAY_STRATA_REFUSAL.condition in str(caught.value)
-        assert "X11 (f4) in docs/roadmap.md" in str(caught.value)
+            simulated_confounding(result, estimand=alias, grid=_GRID)
+        assert caught.value.refusal == refusal
+
+    def test_a_fit_beside_the_natural_course_alone_replays_its_contrast(self) -> None:
+        """The defect of probe 2: this fit raised "inconsistent optimal-rule metadata"."""
+        result = _learned_contrast(OptimalRuleContrast(against=(NaturalCourse(),)))
+        alias = "ate_optimal_rule[learned rule vs natural course]"
+        surface = simulated_confounding(result, estimand=alias, grid=_GRID)
+        assert surface.complete and surface.cells[0].estimate == result[alias].psi
 
     @pytest.mark.parametrize(
-        ("name", "condition"),
-        [
-            ("known_regimes", OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL.condition),
-            ("method_intermediate_0", "relearning replay at a level of the intermediate"),
-        ],
+        "alias", ["ate_optimal_rule[learned rule vs always 1]", "ey_known_regime[always 1]"]
     )
-    def test_known_regimes_and_an_intermediate_refuse_before_any_draw(
-        self, monkeypatch: pytest.MonkeyPatch, name: str, condition: str
+    def test_every_alias_of_an_unseeded_fit_replays_with_its_own_seeds(
+        self, monkeypatch: pytest.MonkeyPatch, alias: str
     ) -> None:
-        """The public path refuses both, with its reason and roadmap part."""
-        result = _composition_pairs(name)[1]
-        assert not result.sensitivity.capability("simulated_confounding").available
-        forbid_draw_and_refit(monkeypatch, result.estimator)
-        with pytest.raises(CapabilityError) as caught:
-            estimand = next(key for key in result.estimates if key.startswith("ey_optimal_rule"))
-            simulated_confounding(result, estimand=estimand, grid=_GRID)
-        message = " ".join(str(caught.value).split())
-        assert " ".join(condition.split()) in message
-        part = "f4" if name == "known_regimes" else "j4"
-        assert f"X11 ({part}) in docs/roadmap.md" in message
+        """W-f4r7: the refit of a comparator or contrast cell carries the repeat seeds."""
+        result = (
+            _study(support.law_frame(n=403))
+            .identify(OptimalRuleContrast(against=(Static(1), Static(0))))
+            .estimate(
+                outcome_learner=RandomForestClassifier(n_estimators=20, min_samples_leaf=20),
+                treatment_learner=support.treatment_learner(),
+                n_folds=5,
+                cv_evaluation=True,
+                simultaneous=False,
+            )
+        )
+        assert result.estimator.random_state is None
+        seeds = [repeat.seed for repeat in result.repeats]
+        refit = type(result.estimator).refit
+        calls: list[dict[str, Any]] = []
+
+        def spy(estimator: Any, data: Any, **kwargs: Any) -> Any:
+            calls.append(kwargs)
+            return refit(estimator, data, **kwargs)
+
+        monkeypatch.setattr(type(result.estimator), "refit", spy)
+        grid = ConfounderStrengthGrid(treatment=(0.0, 0.2), outcome=(0.0,))
+        surface = simulated_confounding(result, estimand=alias, grid=grid)
+        monkeypatch.undo()
+        assert surface.complete and len(calls) == 1
+        keywords = calls[0]
+        assert keywords["frozen_seeds"] == seeds
+        replay = request_module.validate_optimal_rule_replay(
+            result, alias, result.parameter_keys[alias]
+        )[0]
+        assert refit(replay, result.data, **keywords)[alias].psi == result[alias].psi
+        # The mutation: the 415fca9 condition passed seeds for ey_optimal_rule alone.
+        stale = refit(
+            replay, result.data, **{k: v for k, v in keywords.items() if k != "frozen_seeds"}
+        )
+        assert (
+            stale["ey_optimal_rule[learned rule]"].psi
+            != result["ey_optimal_rule[learned rule]"].psi
+        )
+
+    @pytest.mark.parametrize("name", ["known", "strata", "known_strata"])
+    def test_every_alias_carries_the_relearning_reading(self, name: str) -> None:
+        """W-f4r8: the reading follows the fit, not the alias's prefix."""
+        for surface in _composition_surfaces(name).values():
+            _check_relearning_reading(surface)
+
+    def test_a_reading_keyed_on_the_wrong_replay_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """W-f4r8, the mutation: a comparator alias routed as frozen loses its reading."""
+        result = _composition("known")
+        validate = request_module.validate_optimal_rule_replay
+
+        def mutated(fit: Any, estimand: str, key: Any) -> Any:
+            replay, folds, _ = validate(fit, estimand, key)
+            return replay, folds, "frozen"
+
+        monkeypatch.setattr(request_module, "validate_optimal_rule_replay", mutated)
+        grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0,))
+        surface = simulated_confounding(result, estimand="ey_known_regime[always 1]", grid=grid)
+        assert surface.rule_replay == "frozen"
+        with pytest.raises(AssertionError):
+            _check_relearning_reading(surface)
+
+    def test_the_surfaces_draw(self) -> None:
+        for surface in _composition_surfaces("known_strata").values():
+            assert confounding(surface).axes
+            with pytest.raises(TypeError):
+                sensitivity(surface)
+
+
+def _check_relearning_reading(surface: Any) -> None:
+    codes = [n.code for n in surface.summary().notes]
+    assert surface.rule_replay == "relearned"
+    assert "optimal_rule_reading" in codes and "learned_rule_reading" not in codes
+    lines = surface.population_lines()
+    assert any(line.startswith("optimal-rule reading") for line in lines)
+    assert not any(line.startswith("learned-rule reading") for line in lines)
+
+
+def _learned_contrast(estimand: Any) -> Any:
+    return (
+        _study(support.law_frame(n=403))
+        .identify(estimand)
+        .estimate(
+            outcome_learner=support.outcome_learner(),
+            treatment_learner=support.treatment_learner(),
+            n_folds=5,
+            cv_evaluation=True,
+            simultaneous=False,
+            random_state=0,
+        )
+    )

@@ -81,8 +81,6 @@ __all__ = [
     "OPTIMAL_RULE_BENCHMARK_REFUSAL",
     "OPTIMAL_RULE_DOUBLY_ROBUST_NU2",
     "OPTIMAL_RULE_LIMITS",
-    "OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL",
-    "OPTIMAL_RULE_REPLAY_STRATA_REFUSAL",
     "OPTIMAL_RULE_TARGET",
     "OPTIMAL_TARGET_KIND",
     "RULE_CLASS",
@@ -331,33 +329,6 @@ OPTIMAL_RULE_DOUBLY_ROBUST_NU2 = Refusal(
         "Pass nu2_estimator='auto', which reads the plug-in nu^2_sup on the upper side and the "
         "doubly robust learned-rule nu^2 on the lower side, or nu2_estimator='plugin' for both."
     ),
-    roadmap="X11",
-)
-
-#: Why ``simulated_confounding`` refuses a fit of the value of the optimal rule beside known
-#: regimes (X11 (f4)).
-OPTIMAL_RULE_REPLAY_REGIMES_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding of the value of the optimal rule beside known regimes "
-    "(interventions=) is not built. Each cell relearns the rule, and the replay would also "
-    "rebuild every known regime and its contrast with the relearned rule on the perturbed "
-    f"table, which no witness checks ({_X11.format(part='f4')}).",
-    alternative=(
-        "Replay the value of the optimal rule on a fit without interventions=, and each known "
-        "regime on a fit of TMLE(interventions=[...])."
-    ),
-    roadmap="X11",
-)
-
-#: Why ``simulated_confounding`` refuses a fit of the value of the optimal rule with
-#: baseline strata (X11 (f4)).
-OPTIMAL_RULE_REPLAY_STRATA_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "simulated_confounding of the value of the optimal rule with baseline strata (strata=) is "
-    "not built. Each cell would relearn the rule and report every stratum's fold-evaluated "
-    "optimal value on the perturbed table, and no witness checks a relearning replay of "
-    f"stratum values ({_X11.format(part='f4')}).",
-    alternative="Replay the value of the optimal rule on a fit without strata=.",
     roadmap="X11",
 )
 

@@ -1366,9 +1366,9 @@ def _surface_caveats(result: SimulatedConfoundingResult) -> list[Note]:
     notes = []
     if result.estimand.startswith(("ey_ipsi[", "ate_ipsi[")):
         notes.append(note("incremental_reading", TEXTS["incremental_reading"]))
-    if result.estimand.startswith("ey_learned_rule["):
+    if result.rule_replay == "frozen":
         notes.append(note("learned_rule_reading", TEXTS["learned_rule_reading"]))
-    if result.estimand.startswith("ey_optimal_rule["):
+    if result.rule_replay == "relearned":
         notes.append(note("optimal_rule_reading", TEXTS["optimal_rule_reading"]))
     if result.observation_reads is not None:
         reads = _names(result.observation_reads) or "nothing"
