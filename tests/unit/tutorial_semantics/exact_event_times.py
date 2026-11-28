@@ -57,7 +57,7 @@ _ONE_OFFERED = ("one risk_regimen[offered @ t=3]:", "coverage 0.960")
 
 #: Decimals a reading quotes from a code cell outside its own section, by reading cell, then
 #: literal, then the code cell that prints it.
-NARRATION_SOURCES: dict[str, dict[str, str]] = {}
+NARRATION_SOURCES: dict[str, dict[str, str]] = {"plan": {"1.5": "data"}}
 
 READMISSION_3 = "ate_regimen[offered vs not offered, readmission @ t=3]"
 DEATH_3 = "ate_regimen[offered vs not offered, death @ t=3]"
@@ -88,7 +88,8 @@ def _check_association(namespace: dict[str, Any]) -> None:
 
 def _check_fit(namespace: dict[str, Any]) -> None:
     protocol, result, truth = namespace["protocol"], namespace["result"], namespace["truth"]
-    # "about half ... by month 1.5, and by month 3 about three quarters" of the recorded events.
+    # "By month 1.5 about half of the recorded events had happened, and by month 3 about three
+    # quarters".
     first, second = namespace["shares"]
     assert 0.45 < first < 0.55 and 0.70 < second < 0.80
     assert protocol == exact_readmission_protocol()
