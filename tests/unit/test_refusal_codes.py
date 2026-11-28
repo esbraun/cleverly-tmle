@@ -355,6 +355,9 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ): "low-level guard on a covariance_rule and cluster pair: every fit with "
     "variance='policy_weighted' refuses id= upstream with a coded CapabilityError, so only a "
     "direct call of make_estimate with a malformed pair reaches it",
+    ("src/cleverly/datasets/exact_times.py", "death_prevented has no restricted means"): "truth "
+    "function argument: the death-free risks have no restricted-mean truth, so asking for both "
+    "is a malformed argument of an exact-truth helper, and no estimator capability is involved",
     ("src/cleverly/datasets/longitudinal.py", "can only take a step function"): "data "
     "generator argument: a rule whose jump is not at split= is a malformed argument of a "
     "generator, and no estimator capability is involved",

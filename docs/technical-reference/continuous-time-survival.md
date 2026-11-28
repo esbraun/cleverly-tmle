@@ -660,6 +660,7 @@ rebuilds the first four columns from the code.
 | `tol` | `None` | the method | yes | the stopping cutoff; `None` is $1 / (\sqrt n \log n)$ |
 | `alpha` | `0.05` | the method | yes | the significance level |
 | `random_state` | `None` | the method | no | the seed of the folds, the selections, the lasso members and the band |
+| `run_id` | `None` | the method | no | a name for the run, recorded in the result's provenance |
 | `tilt` | `"all"` | none | yes | `"factual"` reproduces the `concrete` 1.0.5 update, for the mutation control only |
 | `simultaneous` | `False` | the method | no | a sup-t band over every risk and risk difference; the study route turns it on by default |
 | `n_multiplier` | `10000` | the method | no | the band's multiplier draws |
