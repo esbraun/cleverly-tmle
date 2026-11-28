@@ -42,6 +42,8 @@ from ..exceptions import (
 )
 from ..inference.multiplier import DEFAULT_BAND_SCALE, DEFAULT_KIND, DEFAULT_N_REPLICATES
 from ..learners._fitting import seed_unset
+from ..provenance import build as provenance_build
+from ..provenance import fingerprint_array, fold_fingerprint
 from ..utils.memory import available_memory, check_max_memory_bytes
 from ..utils.parallel import available_cpus, map_parallel
 from ..utils.random import note_fresh_entropy
@@ -468,6 +470,8 @@ class ContinuousSurvivalTMLE:
         Seed of the folds, the inner selection folds, the lasso members, any unseeded user
         learner, the off-grid diagnostic and the band.  ``None`` draws one seed per fit,
         which the result's stored estimator records.
+    run_id : str or None
+        A caller's label for the run, copied into the result's provenance.
     tilt : {"all", "factual"}
         ``"factual"`` reproduces the ``concrete`` 1.0.5 update, for the mutation control only.
     simultaneous : bool
@@ -543,6 +547,7 @@ class ContinuousSurvivalTMLE:
         tol: float | None = None,
         alpha: float = 0.05,
         random_state: int | None = None,
+        run_id: str | None = None,
         tilt: Literal["all", "factual"] = "all",
         simultaneous: bool = False,
         n_multiplier: int = DEFAULT_N_REPLICATES,
@@ -624,6 +629,7 @@ class ContinuousSurvivalTMLE:
         self.tol = tol
         self.alpha = float(alpha)
         self.random_state = random_state
+        self.run_id = run_id
         self.tilt: Literal["all", "factual"] = tilt
         self.simultaneous = bool(simultaneous)
         self.n_multiplier = int(n_multiplier)
@@ -958,6 +964,17 @@ class ContinuousSurvivalTMLE:
         stored._fold_override = None if folds is None else initial.folds.copy()
         stored._fold_plan = initial.plan
         stored._plan_override = plan
+        provenance = provenance_build(
+            n=initial.n,
+            n_covariates=int(np.asarray(data.baseline).reshape(initial.n, -1).shape[1]),
+            n_clusters=None,
+            data_fingerprint=fingerprint_array(
+                data.time, data.event, data.treatment, data.baseline
+            ),
+            fold_fingerprint=fold_fingerprint([initial.folds]),
+            random_state=self.random_state,
+            run_id=self.run_id,
+        )
         result = ContinuousSurvivalResult(
             estimates=estimates,
             simultaneous=bands,
@@ -979,6 +996,7 @@ class ContinuousSurvivalTMLE:
                 treatment=np.array(data.treatment, copy=True),
                 baseline=np.array(data.baseline, copy=True),
             ),
+            provenance=provenance,
         )
         if not self.n_bootstrap:
             return result

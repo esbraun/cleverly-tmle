@@ -8102,7 +8102,13 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         assert self._study is not None
         data = self._study.data
         assert isinstance(data, ContinuousSurvivalData)
-        return self._continuous_engine(method).fit_data(data)
+        result = self._continuous_engine(method).fit_data(data)
+        if result.provenance is None or self.protocol is None:
+            return result
+        return replace(
+            result,
+            provenance=replace(result.provenance, protocol_fingerprint=self.protocol.fingerprint),
+        )
 
     def _continuous_engine(self, method: EstimationMethod) -> ContinuousSurvivalTMLE:
         """The engine :meth:`_estimate_continuous` fits and :meth:`planned_fits` counts."""

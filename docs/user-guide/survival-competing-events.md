@@ -12,6 +12,8 @@ deaths can lower readmissions in this sense, because fewer people stay alive to 
 [Readmission when death can come first](../examples/longitudinal-survival.ipynb) works through it,
 and [Survival and competing risks](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks)
 gives the recursion, which keeps people with an earlier competing event out of later risk sets.
+[Readmission or death with exact event times](../examples/exact-event-times.ipynb) does the same
+when each event's exact time is recorded.
 
 ## Ask what the risk would be had the other event been prevented
 

@@ -535,7 +535,7 @@ AREAS: tuple[Area, ...] = (
             S + "plotting/_continuous_curve.py",
         ),
         (TR + "continuous-time-survival.md", UG + "survival-exact-times.md"),
-        see=(UG + "survival-competing-events.md",),
+        see=(UG + "survival-competing-events.md", EX + "exact-event-times.ipynb"),
     ),
     _area(
         "continuous-time treatment plans",
@@ -675,6 +675,11 @@ AREAS: tuple[Area, ...] = (
         "two-decision data",
         (S + "datasets/two_decisions.py",),
         see=(EX + "two-decision-rules.ipynb",),
+    ),
+    _area(
+        "exact-time readmission data",
+        (S + "datasets/exact_times.py",),
+        see=(EX + "exact-event-times.ipynb", EX + "plots.ipynb"),
     ),
     _area(
         "heart-failure data",

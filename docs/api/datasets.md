@@ -124,6 +124,16 @@ Three functions serve the [separable-effects tutorial](../examples/separable-eff
 | `heart_failure_truth` | the exact risk of each event by each check when the part acting on readmission and the part acting on death are set to two doses, in either event order |
 | `heart_failure_protocol` | the `StudyProtocol` of the separable-effects question |
 
+Five names serve the [exact event times tutorial](../examples/exact-event-times.ipynb), and the
+[plots tour](../examples/plots.ipynb) draws its exact-time patients from the same generator.
+
+| name | what it holds |
+| --- | --- |
+| `make_exact_readmission` | a frame of patients offered navigation at discharge or not, with a risk score and the exact time and code of the first readmission, of death before any readmission, or of leaving follow-up, with the exact truths |
+| `exact_readmission_truth` | the exact risk of each event by each time under each plan, their differences and ratios, the restricted mean time free of both events and the time lost to each, or the risk of readmission in a world where nobody dies |
+| `exact_readmission_protocol` | the `StudyProtocol` of the exact-time question, derived from `longitudinal_navigation_protocol` |
+| `EXACT_ARMS`, `EXACT_CAUSES` | the two plans and the two event codes |
+
 The [readmission when death can come first](../examples/longitudinal-survival.ipynb) tutorial
 draws its patients with `make_longitudinal_competing`, whose truth holds the exact risk of each
 cause under four fixed plans. `competing_rule_truth` gives the same risk when the day-31 offer
@@ -200,6 +210,9 @@ follows a rule of the needs recorded before it.
    cleverly.datasets.make_heart_failure
    cleverly.datasets.heart_failure_truth
    cleverly.datasets.heart_failure_protocol
+   cleverly.datasets.make_exact_readmission
+   cleverly.datasets.exact_readmission_truth
+   cleverly.datasets.exact_readmission_protocol
 ```
 
 Six names serve the [model-based-over-time tutorial](../examples/model-based-over-time.ipynb),

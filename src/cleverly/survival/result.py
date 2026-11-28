@@ -20,6 +20,7 @@ from ..inference.influence import ParameterEstimate, Scale, make_estimate
 from ..inference.results import ratio_contrast, smooth_contrast
 from ..inference.sparse import influence_row
 from ..inference.switched import PredictableCovariance
+from ..provenance import Provenance
 from ..utils.frames import emit_frame
 
 #: The registered study that measures :class:`~cleverly.survival.ContinuousSurvivalTMLE`.
@@ -1520,19 +1521,24 @@ class ContinuousSurvivalResult(_TargetedRisks, Mapping[str, ParameterEstimate]):
         some combined hazard jump of one or more below one.  A refit warns of nothing; this
         count, and the reason of every bootstrap interval when it is nonzero, say how often
         the bound acted.
+    provenance : Provenance or None
+        The rows, the digests of the data and of the outer folds, the seed and the package
+        versions of the fit; a study fit adds its protocol's fingerprint.  ``None`` only on a
+        result built by hand.
 
     Notes
     -----
-    :attr:`diagnostics`, :attr:`sensitivity`, :meth:`validate` and :meth:`assess` declare a
-    row for every assessment operation. The support, nuisance, score and influence
-    diagnostics read :attr:`record` and the influence curves, and the E-value reads a risk
-    ratio of the fit. ``diagnostics.refute()`` refits :attr:`estimator` on perturbed copies of
-    :attr:`data` (the placebo on a contrast, the random common cause and the subset tests, all
-    descriptive), and ``diagnostics.truncation_curve()`` reruns the targeting walk at other
-    floors from refitted initial hazards. ``sensitivity.simulated_confounding()`` refits
-    :attr:`estimator` once per cell on event and censoring times redrawn from the replay's own
-    Cox fits under a simulated common cause, reusing the fit's fold plan under its own seed
-    (descriptive). Every other sensitivity analysis refuses with its reason and roadmap item.
+    :attr:`diagnostics`, :attr:`sensitivity`, :meth:`validate` and :meth:`assess` declare a row
+    for every assessment operation. The support, nuisance, score and influence diagnostics read
+    :attr:`record` and the influence curves, and the E-value reads a risk ratio of the fit.
+    ``diagnostics.refute()`` refits :attr:`estimator` on perturbed copies of :attr:`data` (the
+    placebo on a contrast and the subset test, which give a verdict, and the random common
+    cause, which is descriptive), and ``diagnostics.truncation_curve()`` reruns the targeting
+    walk at other floors from refitted initial hazards. ``sensitivity.simulated_confounding()``
+    refits :attr:`estimator` once per cell on event and censoring times redrawn from the
+    replay's own Cox fits under a simulated common cause, reusing the fit's fold plan under its
+    own seed (descriptive). Every other sensitivity analysis refuses with its reason and roadmap
+    item.
     """
 
     estimates: dict[str, ParameterEstimate]
@@ -1552,6 +1558,7 @@ class ContinuousSurvivalResult(_TargetedRisks, Mapping[str, ParameterEstimate]):
     bootstrap_status: Literal["ran", "bootstrap_unstable"] | None = None
     bootstrap_failures: tuple[str, ...] = ()
     bootstrap_jump_bounded: int = 0
+    provenance: Provenance | None = field(default=None, repr=False)
     #: Assessment results keyed by operation and normalized arguments. ``init=False``, so a
     #: mapping handed to the constructor by ``dataclasses.replace`` cannot answer for
     #: another fit.

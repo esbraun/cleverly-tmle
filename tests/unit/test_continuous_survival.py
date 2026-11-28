@@ -754,6 +754,52 @@ def test_the_study_route_reports_every_risk_and_contrast() -> None:
     assert 0.0 <= result["cif_regimen[control, relapse @ t=1]"].psi <= 1.0
 
 
+def test_a_study_fit_stamps_its_protocol_and_the_engine_its_data_and_folds() -> None:
+    from tests.unit.summary_fixtures.setup import protocol
+
+    frame = _sample(n=300)
+    contrast = RegimeContrast({"treated": 1, "control": 0}, reference="control", horizons=[1.0])
+    results = []
+    for declared in (protocol(), protocol(horizon="60 days after discharge"), None):
+        study = CausalStudy(frame, design=_design_continuous(), protocol=declared)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            results.append(study.identify(contrast).estimate(random_state=0, cross_fit=False))
+    first, second, plain = (result.provenance for result in results)
+    assert first.protocol_fingerprint == protocol().fingerprint
+    assert second.protocol_fingerprint not in (None, first.protocol_fingerprint)
+    assert plain.protocol_fingerprint is None
+    assert first.data_fingerprint == plain.data_fingerprint
+    assert first.fold_fingerprint == plain.fold_fingerprint
+    assert (first.n, first.n_covariates, first.random_state) == (300, 1, 0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        moved = (
+            CausalStudy(frame.assign(X3=frame["X3"] + 1.0), design=_design_continuous())
+            .identify(contrast)
+            .estimate(random_state=0, cross_fit=False)
+        )
+    assert moved.provenance.data_fingerprint != plain.data_fingerprint
+
+
+def test_the_fold_digest_reads_the_folds_and_the_run_id_and_seed_are_the_callers() -> None:
+    from cleverly.provenance import fold_fingerprint
+
+    frame = _sample(n=300)
+    contrast = RegimeContrast({"treated": 1, "control": 0}, reference="control", horizons=[1.0])
+    question = CausalStudy(frame, design=_design_continuous()).identify(contrast)
+    fits = {}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for seed in (0, 1, None):
+            fits[seed] = question.estimate(random_state=seed, n_folds=2, run_id="job-42")
+    zero, one, unseeded = fits[0], fits[1], fits[None]
+    assert zero.provenance.fold_fingerprint == fold_fingerprint([zero.estimator._outer_folds])
+    assert zero.provenance.fold_fingerprint != one.provenance.fold_fingerprint
+    assert zero.provenance.run_id == "job-42"
+    assert unseeded.provenance.random_state is None
+
+
 def test_a_polars_frame_comes_back_as_polars_and_the_result_saves(tmp_path: Any) -> None:
     pl = pytest.importorskip("polars")
     import cleverly
