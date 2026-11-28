@@ -2924,8 +2924,9 @@ carries these numbers as notes, and `variance="policy_weighted"` covers 0.971 on
 **Scale policies on the classifier route.** On the continuous law of `longitudinal-mtp`, the
 default classifier stack's intervals for a scale policy run narrow: an SE ratio of 0.955 to 0.972
 at n = 2,000 in [`mtp-density-tails`](method-evidence/mtp-density-tails.md), and 0.894 at
-n = 8,000 with correct outcome regressions, because the stack's ratio is shrunk where the scale
-policy's ratio rises steeply. These intervals are labelled `experimental`.
+n = 8,000 with correct outcome regressions. The stack's ratio is shrunk in the dose band just
+below the policy's cap, where the true ratio rises steeply. These intervals are labelled
+`experimental`.
 
 ### Choices that differ from LTMLE
 
