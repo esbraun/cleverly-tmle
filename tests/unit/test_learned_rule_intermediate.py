@@ -805,16 +805,17 @@ class TestTheMethodLayerSpelling:
         with pytest.raises(DataError, match=r"0\.0 or 1\.0"):
             LearnedRuleValue(intermediate=0.5)
 
-    def test_simulated_confounding_of_a_level_refuses_by_name(self) -> None:
+    def test_simulated_confounding_of_a_level_runs(self) -> None:
+        """X11 (j4a): the frozen replay at the level; its witnesses are in
+        ``test_simulated_confounding_learned_rule.py``."""
         from cleverly.sensitivity import ConfounderStrengthGrid, simulated_confounding
 
         result = self._estimate(0.0)
         grid = ConfounderStrengthGrid(treatment=(0.0,), outcome=(0.0, 0.2))
-        assert result.sensitivity.capability("simulated_confounding").reason is not None
-        with pytest.raises(CapabilityError, match=r"X11 \(j4\)") as caught:
-            simulated_confounding(result, estimand=NAME, grid=grid)
-        assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-        assert "held at a level (here Z = 0)" in str(caught.value)
+        assert result.sensitivity.capability("simulated_confounding").available
+        surface = simulated_confounding(result, estimand=NAME, grid=grid)
+        assert surface.complete and surface.rule_replay == "frozen"
+        assert surface.intermediate_value == 0.0
 
     def test_a_rule_learner_keeps_its_refusal_and_the_optimal_value_identifies(self) -> None:
         study = self._study()

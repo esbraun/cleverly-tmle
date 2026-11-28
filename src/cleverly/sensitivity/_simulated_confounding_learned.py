@@ -163,7 +163,7 @@ def _checked_fit(
         )
     ):
         raise replay_error(error)
-    check_only_declared_axis(result, key, "learned_rule", error)
+    check_only_declared_axis(result, key, "learned_rule", error, intermediate=True)
     point_study_or_refuse(result, error)
     if type(rule) is not LearnedRule or type(record) is not LearnedRuleRecord:
         raise replay_error(error)

@@ -195,7 +195,9 @@ def check_only_declared_axis(
     """Refuse compositions without a supported perturbation and replay law.
 
     ``intermediate=True`` admits a controlled direct effect on the arm axis, whose replay
-    holds the treatment and perturbs the intermediate and the outcome (X82 part F (f)).
+    holds the treatment and perturbs the intermediate and the outcome (X82 part F (f)), and
+    a learned-rule fit at a level of the intermediate, whose replay holds the treatment and
+    every rule at that level (X11 (j4)).
     """
     functional = result.identified_effect.functional
     estimator = result.estimator
@@ -209,7 +211,10 @@ def check_only_declared_axis(
         functional.longitudinal
         or functional.axis != axis
         or functional.horizons is not None
-        or (functional.intermediate is not None and not (intermediate and axis == "arm"))
+        or (
+            functional.intermediate is not None
+            and not (intermediate and axis in ("arm", "learned_rule"))
+        )
         or any(getattr(estimator, slot, None) for slot in slots if slot not in allowed)
         or (bool(functional.interventions) != (axis in _INTERVENTION_AXES))
         or (functional.msm is not None) != (axis == "msm")

@@ -775,7 +775,6 @@ class TestTheAssessments:
         assert "X11 (n2) in docs/roadmap.md" in (row.reason or "")
 
     def test_the_replay_admits_the_optimal_value_and_its_splits(self, result: Any) -> None:
-        assert request_module._refuse_optimal_rule(result) is None
         # The relearning replay holds no rule per row, so repeats above 1 pass; the frozen
         # learned-rule replay keeps its splits refusal.
         learned, repeated = _pairs("repeats")

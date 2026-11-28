@@ -2278,7 +2278,7 @@ walks that table and returns the first reason that applies.
 
 The stops that the science decides apply in this order: longitudinal fits (`longitudinal`), the
 projection of a conditional contrast (`projection`), risk-ratio tilt fits (`risk_ratio_tilt`), then
-the learned-rule stops (`optimal_rule`, `learned_rule_level`, `learned_rule_splits`). The
+the learned-rule stop (`learned_rule_splits`). The
 longitudinal stop waits on a declared law, and it applies the ordered stops of the longitudinal
 latent; a longitudinal result that passes them meets no point rule. The tilt stop waits on a typed
 study request ([X85](../roadmap.md#x85-typed-study-requests-for-the-risk-ratio-tilt)). Each of these
@@ -2288,7 +2288,7 @@ intermediate stops read the grid, so they run in `_validate_request` and not in 
 The provenance and shape stops read the object you hold rather than the state of the science.
 The `result_type` stop runs second, before the projection stop, because every later rule reads a
 field that only a `TMLEResult` declares. `missing_estimator` and `repeat_provenance` follow the
-risk-ratio tilt stop, and the rest follow the learned-rule stops, in the order of the table.
+risk-ratio tilt stop, and the rest follow the learned-rule stop, in the order of the table.
 
 | rule | refuses |
 | --- | --- |

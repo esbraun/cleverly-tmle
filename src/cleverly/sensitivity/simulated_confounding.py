@@ -514,6 +514,15 @@ class SimulatedConfoundingResult:
             *self._population_conditions(),
         )
 
+    def _rule_level(self) -> str:
+        """The clause a learned-rule reading adds at a level of an intermediate (X11 (j4))."""
+        if self.intermediate_name is None or self.intermediate_value is None:
+            return ""
+        return (
+            f"; every rule holds the intermediate at {self.intermediate_name} = "
+            f"{self.intermediate_value:g}"
+        )
+
     def _population_conditions(self) -> tuple[str, ...]:
         """The lines of :meth:`population_lines` that only some surfaces print."""
         return (
@@ -530,7 +539,7 @@ class SimulatedConfoundingResult:
                 (
                     "learned-rule reading: every cell refits on the fit's folds with each row's "
                     "realized fold rule held fixed, so a cell reads confounding of the value of "
-                    "these fixed rules, not of the learned-rule procedure",
+                    "these fixed rules, not of the learned-rule procedure" + self._rule_level(),
                 )
                 if self.rule_replay == "frozen"
                 else ()
@@ -539,7 +548,7 @@ class SimulatedConfoundingResult:
                 (
                     "optimal-rule reading: every cell relearns the rule on the fit's folds and "
                     "seed, so a cell reads confounding of the value of the optimal rule, and "
-                    "the rule moves with the confounding",
+                    "the rule moves with the confounding" + self._rule_level(),
                 )
                 if self.rule_replay == "relearned"
                 else ()
@@ -1860,12 +1869,13 @@ def simulated_confounding(
     original population, or the recorded rows of each target when observations are
     missing. A learned-rule fit keeps the fit's folds, its repeat seeds and each row's realized
     rule in every cell. A fit of the value of the optimal rule keeps the fit's folds and repeat
-    seeds and relearns the rule in every cell, with one relearning refit per stored split; it
-    refuses an intermediate. Both replays cover every alias of the fit, the known regimes beside
-    the rule (frozen at their stored densities), the contrasts and each baseline stratum, and
-    refuse the natural-course value, which is E[Y]. A longitudinal fit and a
-    risk-ratio tilt are refused before calibration, a draw, or a refit, and so are the grid
-    stops of ``observation_reads`` and the intermediate axis.
+    seeds and relearns the rule in every cell, with one relearning refit per stored split. Both
+    replays cover every alias of the fit, the known regimes beside the rule (frozen at their
+    stored densities), the contrasts, each baseline stratum and a level of an intermediate,
+    where each cell holds the treatment and every rule at the level; they refuse the
+    natural-course value, which is E[Y]. A longitudinal fit and a risk-ratio tilt are refused
+    before calibration, a draw, or a refit, and so are the grid stops of ``observation_reads``
+    and the intermediate axis.
     Execution and the assessment capability share the same ordered reasons.
 
     A continuous-time survival fit flips its binary treatment in the latent tail and shifts

@@ -2233,9 +2233,7 @@ def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
         "risk_ratio_tilt",
         "missing_estimator",
         "repeat_provenance",
-        "optimal_rule",
         "learned_rule_comparators",
-        "learned_rule_level",
         "learned_rule_splits",
         "binary_estimator",
         "continuous_estimator",
@@ -2278,8 +2276,6 @@ def test_the_refusal_section_names_every_fit_wide_rule_and_counts_none() -> None
         "longitudinal",
         "projection",
         "risk_ratio_tilt",
-        "optimal_rule",
-        "learned_rule_level",
         "learned_rule_splits",
     }
     assert tabled == {name for name, _ in _FIT_WIDE_RULES} - science

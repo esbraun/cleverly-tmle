@@ -72,7 +72,6 @@ from tests.unit._confounding_support import forbid_draw_and_refit
 from tests.unit._confounding_support import replacement as _replacement
 from tests.unit.test_learned_rule_bound import REPLICATES, ParityRule
 from tests.unit.test_learned_rule_optimal import _pairs
-from tests.unit.test_learned_rule_optimal_compositions import _pairs as _composition_pairs
 
 matplotlib.use("Agg")
 
@@ -852,24 +851,6 @@ class TestTheRelearningReplay:
         with pytest.raises(TypeError):
             sensitivity(_surface())
 
-    @pytest.mark.parametrize(
-        ("name", "condition"),
-        [("method_intermediate_0", "relearning replay at a level of the intermediate")],
-    )
-    def test_an_intermediate_refuses_before_any_draw(
-        self, monkeypatch: pytest.MonkeyPatch, name: str, condition: str
-    ) -> None:
-        """The public path refuses it, with its reason and roadmap part."""
-        result = _composition_pairs(name)[1]
-        assert not result.sensitivity.capability("simulated_confounding").available
-        forbid_draw_and_refit(monkeypatch, result.estimator)
-        with pytest.raises(CapabilityError) as caught:
-            estimand = next(key for key in result.estimates if key.startswith("ey_optimal_rule"))
-            simulated_confounding(result, estimand=estimand, grid=_GRID)
-        message = " ".join(str(caught.value).split())
-        assert " ".join(condition.split()) in message
-        assert "X11 (j4) in docs/roadmap.md" in message
-
 
 # ------------------------------------------------- the replay with strata and comparators
 
@@ -1324,3 +1305,100 @@ def _learned_contrast(estimand: Any) -> Any:
             random_state=0,
         )
     )
+
+
+# -------------------------------------------------------- the relearning replay at a level
+#
+# X11 (j4b).  Each cell holds the treatment, flips the intermediate and moves the outcome,
+# and relearns the rule at the fit's level on the fit's folds and repeat seeds.
+
+#: W-j4o3: at every nonzero cell of the three fits the frozen-rule replay misses the
+#: relearned cell by 0.0065 to 0.089 (observed); the margin is half the smallest.
+W_J4O3_GAP = 3e-3
+
+
+@cache
+def _optimal_level(name: str) -> Any:
+    from tests.unit.test_simulated_confounding_learned_rule import _level_options, _level_study
+
+    estimand = {
+        "0": OptimalRuleValue(intermediate=0.0),
+        "1": OptimalRuleValue(intermediate=1.0),
+        "contrast": OptimalRuleContrast(against=(Static(1),), intermediate=1.0),
+    }[name]
+    return _level_study().identify(estimand).estimate(**_level_options())
+
+
+@cache
+def _optimal_level_surfaces(name: str) -> dict[str, Any]:
+    from tests.unit.test_simulated_confounding_learned_rule import _LEVEL_GRID
+
+    result = _optimal_level(name)
+    return {
+        alias: simulated_confounding(result, estimand=alias, grid=_LEVEL_GRID)
+        for alias in result.estimates
+    }
+
+
+def _relearned_level(result: Any, data: Any) -> Any:
+    z = result.intermediate_value
+    folds = [repeat.nuisance.folds for repeat in result.repeats]
+    return result.estimator.refit(data, intermediate_value=z, random_state=0, frozen_folds=folds)
+
+
+@pytest.mark.parametrize("name", ["0", "1", "contrast"])
+class TestTheRelearningReplayAtALevel:
+    """W-j4o1 to W-j4o4 of the plan, and the reading of every level alias (W-f4r8)."""
+
+    def test_the_anchor_and_the_manual_refit_reproduce_every_alias(self, name: str) -> None:
+        """W-j4o1."""
+        result, surfaces = _optimal_level(name), _optimal_level_surfaces(name)
+        manual = _relearned_level(result, result.data)
+        for alias, surface in surfaces.items():
+            assert surface.complete and surface.intermediate_value == result.intermediate_value
+            assert surface.cells[0].estimate == result[alias].psi
+            assert manual[alias].psi == result[alias].psi
+            _check_relearning_reading(surface)
+
+    def test_every_cell_is_the_relearning_refit_at_the_level(self, name: str) -> None:
+        """W-j4o2."""
+        from tests.unit.test_simulated_confounding_learned_rule import level_table
+
+        result, surfaces = _optimal_level(name), _optimal_level_surfaces(name)
+        first = next(iter(surfaces.values()))
+        for index, cell in enumerate(first.cells[1:], start=1):
+            manual = _relearned_level(result, level_table(result, first, cell))
+            for alias, surface in surfaces.items():
+                assert surface.cells[index].estimate == pytest.approx(
+                    manual[alias].psi, abs=1e-12
+                ), alias
+
+    def test_a_flipped_cell_relearns_the_level_rules(self, name: str) -> None:
+        """W-j4o3, nonzero: the frozen-rule replay of the same cell misses it."""
+        from tests.unit.test_simulated_confounding_learned_rule import level_table
+
+        result, surfaces = _optimal_level(name), _optimal_level_surfaces(name)
+        alias = "ey_optimal_rule[learned rule]"
+        surface = surfaces[alias]
+        z = result.intermediate_value
+        for cell in surface.cells[1:]:
+            table = level_table(result, surface, cell)
+            manual = _relearned_level(result, table)
+            changed = fold_rules(manual.repeats[0].nuisance) != fold_rules(
+                result.repeats[0].nuisance
+            )
+            assert float(np.mean(changed)) > 0.02
+            frozen = frozen_rule_replay(result.estimator, freeze_learned_rule(result)).refit(
+                table, intermediate_value=z, random_state=0, frozen_folds=[result.nuisance.folds]
+            )
+            assert abs(frozen[alias].psi - cell.estimate) > W_J4O3_GAP
+
+    def test_a_treatment_strength_is_refused_before_any_draw(
+        self, name: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """W-j4o4: R1."""
+        result = _optimal_level(name)
+        forbid_draw_and_refit(monkeypatch, result.estimator)
+        with pytest.raises(CapabilityError) as caught:
+            simulated_confounding(result, estimand="ey_optimal_rule[learned rule]", grid=_GRID)
+        assert caught.value.refusal.roadmap == "F15"

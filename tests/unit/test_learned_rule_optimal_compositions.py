@@ -1053,12 +1053,15 @@ class TestTheSensitivityAnalysesOfEachComposition:
         assert benchmark_refusal(optimal, ["W2"]) is OPTIMAL_RULE_BENCHMARK_REFUSAL
 
     @pytest.mark.parametrize("name", SENSITIVITY_COMPOSITIONS)
-    def test_the_replay_admits_or_refuses_with_its_own_reason(self, name: str) -> None:
+    def test_the_replay_meets_no_refusal_of_the_optimal_rule(self, name: str) -> None:
+        """Strata, known regimes and a level replay (X11 (f4), (j4)).
+
+        An engine fit keeps the refusal that it records no identification.
+        """
         _, optimal = _pairs(name)
-        refusal = request_module._refuse_optimal_rule(optimal)
-        if name.startswith(("intermediate", "method_intermediate")):
+        refusal = request_module._fit_wide_refusal(optimal)
+        if optimal.identified_effect is None:
             assert refusal is not None
-            assert "relearning replay at a level of the intermediate" in refusal.condition
-            assert "X11 (j4) in docs/roadmap.md" in refusal.condition
+            assert "needs identification metadata" in refusal.condition
         else:
-            assert refusal is None
+            assert refusal is None, refusal
