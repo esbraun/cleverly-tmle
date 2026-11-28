@@ -3846,11 +3846,15 @@ class TMLE:
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
             )
+            arm_floor = estimand_interval_floor(
+                point_fit_floor_family(self, data), arm_mean=True, longitudinal=False
+            )
             result = attach_bootstrap(
                 result,
                 bootstrap,
                 diagnostic=self._bootstrap_diagnostic(data),
                 classification=classification,
+                estimand_floors=dict.fromkeys(ARM_MEAN_POINT_ESTIMANDS, arm_floor),
                 experimental_reason=(
                     None
                     if classification is None or "in_sample" in classification.key.splitting

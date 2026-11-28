@@ -1541,6 +1541,7 @@ def attach_bootstrap(
     classification: Classification | None = None,
     interval: BootstrapInterval = "percentile",
     experimental_reason: str | None = None,
+    estimand_floors: Mapping[str, int] | None = None,
 ) -> _ResultT:
     """Return a copy of ``result`` with bootstrap summaries attached.
 
@@ -1563,8 +1564,8 @@ def attach_bootstrap(
         :func:`~cleverly._support.support_for` gives for the interval's kind: ``"bootstrap"``
         for a percentile interval and ``"bootstrap_bca"`` for a BCa interval. A summary reads
         below the cluster floor when the key's dependence is ``"below_floor"``, or when its
-        estimate carries ``"few_cluster_estimand_plugin"``, which keeps the default floor of the
-        fit's kind. ``None`` leaves it unclassified.
+        estimate carries ``"few_cluster_estimand_plugin"``, which keeps that estimate's own floor
+        (``estimand_floors``). ``None`` leaves it unclassified.
     interval : {"percentile", "bca"}, default="percentile"
         The pointwise interval. A BCa interval reads each estimate's acceleration from its
         own influence curve (:func:`~cleverly.inference.bootstrap.bca_acceleration`), summed within
@@ -1575,6 +1576,12 @@ def attach_bootstrap(
         the generic reason, which names why, and adds this sentence after it.  The
         point-treatment TMLE passes the reason of a cross-fitted bootstrap (roadmap F2);
         ``None`` keeps the generic reason.
+    estimand_floors : mapping of str to int or None, default=None
+        The floor of each estimate whose floor is not the default of its kind: an arm mean
+        that keeps its family's arm-mean floor
+        (:data:`~cleverly._inference_status.ARM_MEAN_INTERVAL_FLOORS`). A summary whose estimate
+        carries ``"few_cluster_estimand_plugin"`` stamps this floor; a name left out reads the
+        default floor. ``None`` reads the default for every estimate.
 
     Returns
     -------
@@ -1634,7 +1641,9 @@ def attach_bootstrap(
             diagnostic=diagnostic or estimate.node is not None,
             boundary_node=estimate.node is not None,
             below_floor=below_floor or unmeasured,
-            cluster_floor=default_floor if unmeasured else cluster_floor,
+            cluster_floor=(
+                (estimand_floors or {}).get(name, default_floor) if unmeasured else cluster_floor
+            ),
             support=support,
         )
 

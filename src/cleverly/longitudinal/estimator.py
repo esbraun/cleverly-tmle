@@ -77,6 +77,7 @@ from .._inference_status import (
     ADAPTIVE_BASELINE_STATUS,
     BOUNDARY_NODE_OUT_OF_REACH,
     CONSTANT_NODE_STATUS,
+    DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS,
     MEASURED_LONGITUDINAL_DESIGNS,
     PARAMETER_STATUSES,
     TRIMMED_RATIO_STATUS,
@@ -4742,11 +4743,16 @@ class _Reported:
         parameters are indexed by term.
     contributors : dict of str to tuple of RegimenFit
         The fits that produced each reported name.
+    floors : dict of str to int, default empty
+        The interval floor of each estimate whose floor is not the default of its kind: the
+        always-treat and never-treat levels of a measured design, which keep the family's
+        arm-mean floor. The bootstrap summary of such a level reads it.
     """
 
     estimates: dict[str, ParameterEstimate]
     index: dict[str, tuple[str, str | None, int]] | None
     contributors: dict[str, tuple[RegimenFit, ...]]
+    floors: dict[str, int] = field(default_factory=dict)
 
 
 def _inference_status(
@@ -4942,17 +4948,23 @@ def _estimates(
     )
     # On the measured design the always-treat and never-treat levels keep the family's
     # arm-mean floor, measured at every count by few-cluster-arm-means (X54 part (k)).
+    arm_floor = (
+        estimand_interval_floor(family, arm_mean=True, longitudinal=True)
+        if measured and not data.reports_curve and policy is None
+        else None
+    )
     arm_general = (
-        unmeasured_estimand_status(
+        general
+        if arm_floor is None
+        else unmeasured_estimand_status(
             inference,
             data.cluster,
             weights=data.weights if data.is_weighted else None,
             longitudinal=True,
-            floor=estimand_interval_floor(family, arm_mean=True, longitudinal=True),
+            floor=arm_floor,
         )
-        if measured and not data.reports_curve and policy is None
-        else general
     )
+    floors: dict[str, int] = {}
     if policy is not None:
         return _policy_estimates(
             data,
@@ -5021,7 +5033,14 @@ def _estimates(
         contributors[name] = (fit,)
         level = scaler.unscale_level(fit.psi_scaled)
         bounds = parameter_bounds("mean", data.family)
-        own_level = arm_general if _static_arm(fit.regimen) is not None else general
+        arm_mean = arm_floor is not None and _static_arm(fit.regimen) is not None
+        own_level = arm_general if arm_mean else general
+        if (
+            arm_mean
+            and arm_floor is not None
+            and arm_floor != DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
+        ):
+            floors[name] = arm_floor
         status = bounded_status(
             _parameter_status(own_level, fit, supplemented=supplemented), level, bounds
         )
@@ -5101,7 +5120,7 @@ def _estimates(
         # A bounded contrast is the difference of the two levels in its estimate and its
         # curve, so its interval reads them (correlated MOVER on their logit intervals).
         estimates[name] = with_components(estimates[name], level_of[id(fit)], level_of[id(base)])
-    return _Reported(estimates=estimates, index=index, contributors=contributors)
+    return _Reported(estimates=estimates, index=index, contributors=contributors, floors=floors)
 
 
 def measured_contrast(first: RegimenSpec, second: RegimenSpec) -> bool:
@@ -6865,6 +6884,7 @@ class _SequentialEstimator:
                 g_bounds=bounds,
                 classification=classification,
                 status=status,
+                floors=first.reported.floors,
             )
         result = self._with_restricted(result)
         record_fit(classification, result, source=f"{type(self).__name__}.fit")
@@ -8454,6 +8474,7 @@ class _SequentialEstimator:
         g_bounds: tuple[float, float],
         classification: Classification | None,
         status: InferenceStatus,
+        floors: Mapping[str, int] | None = None,
     ) -> LongitudinalResult:
         """Run the full-refit bootstrap and attach its intervals and band to ``result``.
 
@@ -8497,7 +8518,11 @@ class _SequentialEstimator:
         # ``bootstrap_band``) licenses it, and every other fit that publishes it is
         # experimental.
         result = attach_bootstrap(
-            result, bootstrap, classification=classification, interval=self.bootstrap_interval
+            result,
+            bootstrap,
+            classification=classification,
+            interval=self.bootstrap_interval,
+            estimand_floors=floors,
         )
         # An estimate that adds the boundary-node supplement stays out of the bootstrap band:
         # every resample keeps its flagged node's one value, as for the multiplier band.
