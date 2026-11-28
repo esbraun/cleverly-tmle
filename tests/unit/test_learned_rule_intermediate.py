@@ -24,13 +24,18 @@ fold rules at each level, pooled, per arm and over three arms.  A Gateaux check 
 law shows the in-sample curve of each level is the influence function of the value of its
 rule.  Every composition the contract names has a test here: admitted and experimental, or
 refused with a remedy.
+
+R6 (``plan-f4-j4`` 4.9): a fit at level ``z`` that reads an empty (arm, Z = z) cell of the sample
+or of a baseline stratum refuses before any learner, per level, and a study estimand at the other
+level runs and equals that level of the two-level fit of 415fca9.
 """
 
 from __future__ import annotations
 
+import re
 import warnings
 from functools import cache
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -41,7 +46,14 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import PolynomialFeatures
 
-from cleverly import CausalStudy, LearnedRuleValue, OptimalRuleValue, PointTreatment, load
+from cleverly import (
+    CausalStudy,
+    ControlledDirectEffect,
+    LearnedRuleValue,
+    OptimalRuleValue,
+    PointTreatment,
+    load,
+)
 from cleverly.estimators import TMLE
 from cleverly.estimators._nuisance import fit_on_rows
 from cleverly.estimators.serialize import dumps, loads
@@ -1120,3 +1132,406 @@ class TestTheRecord:
                 nuisance.at_level(z).regimes.fold_rules,
                 _planted()[z].nuisance.regimes.fold_rules,
             )
+
+
+# ------------------------------------------------------------------- R6, an empty level cell
+
+
+class SpyLogistic(LogisticRegression):
+    """A logistic regression that records each fit, so a test sees whether a learner ran."""
+
+    calls: ClassVar[list[int]] = []
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> SpyLogistic:
+        SpyLogistic.calls.append(len(y))
+        return super().fit(X, y, sample_weight=sample_weight)
+
+
+def _spied() -> dict[str, Any]:
+    """The learners of :func:`cde_tmle` with every fit recorded on :class:`SpyLogistic`."""
+    return {
+        "outcome_learner": Pipeline(
+            [
+                ("poly", PolynomialFeatures(2, interaction_only=True, include_bias=False)),
+                ("fit", SpyLogistic(max_iter=5000)),
+            ]
+        ),
+        "treatment_learner": SpyLogistic(max_iter=1000),
+        "intermediate_learner": SpyLogistic(max_iter=1000),
+    }
+
+
+@pytest.fixture
+def spy() -> list[int]:
+    """The fits of :class:`SpyLogistic` made in this test."""
+    SpyLogistic.calls.clear()
+    return SpyLogistic.calls
+
+
+#: R6's condition, the arm, the scope and the level each in its own group.
+R6 = (
+    r"the fit at Z = (?P<z>[01]) reads E\(Y \| A = (?P<arm>[01]), Z = [01], W\), and "
+    r"(?P<scope>the sample|baseline stratum W2=[01]\.0) contains no positive-weight observation"
+    r"(?P<observed> with an observed outcome)? with A = [01] and Z = [01]; the value at this "
+    r"level is not identified there"
+)
+STRATA_FIT = {**FIT, "strata": ["W2"]}
+#: The stacked report: the fold-evaluated report refuses strata with an intermediate (X28).
+STACKED = {"cv_evaluation": False}
+
+
+def _assert_equal(a: Any, b: Any) -> None:
+    """Two estimates with the same point, variance and curve at ``abs=1e-12``."""
+    assert a.psi == pytest.approx(b.psi, abs=1e-12)
+    assert a.variance == pytest.approx(b.variance, abs=1e-12)
+    np.testing.assert_allclose(a.influence_curve, b.influence_curve, rtol=0.0, atol=1e-12)
+
+
+def _r6(caught: Any, *, z: str, arm: str, scope: str) -> str:
+    """Assert ``caught`` is R6 at level ``z`` naming ``arm`` and ``scope``; return its remedy."""
+    assert isinstance(caught.value, DataError)
+    found = re.search(R6, str(caught.value))
+    assert found is not None, str(caught.value)
+    assert (found["z"], found["arm"], found["scope"]) == (z, arm, scope)
+    return str(caught.value.refusal.alternative)
+
+
+def stratum_cut_frame(n: int = 800, seed: int = 0) -> pd.DataFrame:
+    """Probe 8 part 1: :func:`cde_frame` with ``Z = 0`` on every ``W2 = 1`` row."""
+    frame = cde_frame(n, seed).copy()
+    frame.loc[frame["W2"] == 1, "Z"] = 0.0
+    return frame
+
+
+def cut_frame(arm: float, n: int = 800, seed: int = 0) -> pd.DataFrame:
+    """:func:`cde_frame` with ``Z = 0`` on every row of arm ``arm``: no (arm, Z = 1) row."""
+    frame = cde_frame(n, seed).copy()
+    frame.loc[frame["A"] == arm, "Z"] = 0.0
+    return frame
+
+
+def _design(*, strata: bool = False, missingness: str | None = None) -> PointTreatment:
+    return PointTreatment(
+        outcome="Y",
+        treatment="A",
+        adjustment=tuple(COVARIATES),
+        intermediate="Z",
+        strata=("W2",) if strata else (),
+        missingness=missingness,
+    )
+
+
+def _options(**overrides: Any) -> dict[str, Any]:
+    """The study options that match :func:`cde_tmle` under the stacked report."""
+    options: dict[str, Any] = {
+        "outcome_learner": outcome_learner(),
+        "treatment_learner": LogisticRegression(max_iter=1000),
+        "intermediate_learner": LogisticRegression(max_iter=1000),
+        "n_folds": 5,
+        "simultaneous": False,
+        "random_state": 0,
+        "cv_evaluation": False,
+    }
+    options.update(overrides)
+    return options
+
+
+def _unchecked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove R6, which leaves the fit of 415fca9 (the base reproduces it bit for bit)."""
+    monkeypatch.setattr(TMLE, "_refuse_absent_cells", lambda self, *args, **kwargs: None)
+
+
+class TestTheEmptyLevelCell:
+    """R6: a level fit that reads an empty (arm, Z = z) cell refuses, before any learner."""
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {},
+            {"interventions": [Static(1)]},
+            {"learned_rule": None, "interventions": [Static(1)]},
+            {"learned_rule": None, "estimands": ("ey", "ate")},
+        ],
+        ids=["learned", "learned_beside_static", "known", "arms"],
+    )
+    def test_fit_refuses_the_stratum_before_any_learner(
+        self, overrides: dict[str, Any], spy: list[int]
+    ) -> None:
+        """W-r6-1: probe 8 part 1, stacked report."""
+        with pytest.raises(DataError) as caught:
+            fit_cde(stratum_cut_frame(), STRATA_FIT, **STACKED, **_spied(), **overrides)
+        remedy = _r6(caught, z="1", arm="0", scope="baseline stratum W2=1.0")
+        assert "intermediate=0" in remedy and "TMLE.refit(data, intermediate_value=0)" in remedy
+        assert "drop or merge the stratum" in remedy
+        assert spy == []
+
+    def test_planned_fits_refuse_the_stratum(self) -> None:
+        with pytest.raises(DataError, match=R6):
+            cde_tmle(**STACKED)._planned_fits(stratum_cut_frame(), **STRATA_FIT)
+
+    def test_the_study_answers_level_0_and_refuses_level_1(
+        self, spy: list[int], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """W-r6-1: level 0 is identified and equals level 0 of the two-level fit of 415fca9."""
+        study = CausalStudy(stratum_cut_frame(), design=_design(strata=True))
+        with pytest.raises(DataError) as caught:
+            study.identify(LearnedRuleValue(intermediate=1.0)).estimate(**_options(**_spied()))
+        remedy = _r6(caught, z="1", arm="0", scope="baseline stratum W2=1.0")
+        assert remedy.startswith("Drop or merge the stratum")
+        assert spy == []
+        with pytest.raises(DataError, match=R6):
+            study.identify(LearnedRuleValue(intermediate=1.0)).planned_fits(**_options())
+        level = study.identify(LearnedRuleValue(intermediate=0.0)).estimate(**_options())
+        _unchecked(monkeypatch)
+        shipped = fit_cde(stratum_cut_frame(), STRATA_FIT, **STACKED)
+        # 415fca9 reports 0.5532 marginal and 0.5248 for W2=1 at Z = 1 (probe 8), the latter
+        # the outcome learner's extrapolation to a cell with no row.
+        assert shipped[0.0].estimates[NAME].psi == pytest.approx(0.5532, abs=1e-3)
+        assert shipped[1.0].estimates[f"{NAME}[W2=1.0]"].psi == pytest.approx(0.5248, abs=1e-3)
+        assert set(level.estimates) == set(shipped[0.0].estimates)
+        for name, estimate in level.estimates.items():
+            _assert_equal(estimate, shipped[0.0].estimates[name])
+
+    def test_refit_refuses_level_1_and_runs_level_0(self, spy: list[int]) -> None:
+        study = CausalStudy(stratum_cut_frame(), design=_design(strata=True))
+        result = study.identify(LearnedRuleValue(intermediate=0.0)).estimate(**_options())
+        engine = cde_tmle(**STACKED, **_spied())
+        with pytest.raises(DataError) as caught:
+            engine.refit(result.data, intermediate_value=1.0)
+        assert _r6(caught, z="1", arm="0", scope="baseline stratum W2=1.0").startswith("Drop")
+        with pytest.raises(DataError, match=R6):
+            engine._planned_refit(result.data, intermediate_value=1.0)
+        assert spy == []
+        assert engine.refit(result.data, intermediate_value=0.0).estimates[NAME].psi > 0.0
+
+    def test_fit_refuses_the_sample_and_the_study_answers_level_0(self, spy: list[int]) -> None:
+        """W-r6-2: probe 8 part 2, no strata and no (A = 1, Z = 1) row."""
+        with pytest.raises(DataError) as caught:
+            fit_cde(cut_frame(1.0), **STACKED, **_spied())
+        remedy = _r6(caught, z="1", arm="1", scope="the sample")
+        assert remedy.endswith("or collect rows in the empty cell.")
+        assert spy == []
+        study = CausalStudy(cut_frame(1.0), design=_design())
+        level = study.identify(LearnedRuleValue(intermediate=0.0)).estimate(**_options())
+        assert level.estimates[NAME].psi == pytest.approx(0.5451295589103848, abs=1e-6)
+
+    def test_one_row_of_each_arm_in_the_cell_passes(self, spy: list[int]) -> None:
+        """W-r6-3: the boundary is nonzero."""
+        frame = stratum_cut_frame()
+        for arm in (0.0, 1.0):
+            row = frame.index[(frame["W2"] == 1) & (frame["A"] == arm)][0]
+            frame.loc[row, "Z"] = 1.0
+        assert set(fit_cde(frame, STRATA_FIT, **STACKED, **_spied())) == set(LEVELS)
+        assert spy != []
+
+    def test_a_stratum_with_only_arm_0_at_level_1_names_arm_1(self) -> None:
+        """W-r6-3: a check that read ``Z`` alone would pass this table."""
+        frame = cde_frame(800, 0).copy()
+        frame.loc[(frame["W2"] == 1) & (frame["A"] == 1), "Z"] = 0.0
+        assert ((frame["W2"] == 1) & (frame["Z"] == 1)).sum() > 0
+        with pytest.raises(DataError) as caught:
+            fit_cde(frame, STRATA_FIT, **STACKED)
+        _r6(caught, z="1", arm="1", scope="baseline stratum W2=1.0")
+
+    def test_a_zero_weight_row_does_not_fill_the_cell(self) -> None:
+        """W-r6-3: only positive-weight rows identify a weighted fit's cell."""
+        frame = cut_frame(1.0).assign(w=1.0)
+        row = frame.index[frame["A"] == 1][0]
+        frame.loc[row, ["Z", "w"]] = [1.0, 0.0]
+        with pytest.raises(DataError) as caught:
+            fit_cde(frame, {**FIT, "weights": "w"}, **STACKED)
+        _r6(caught, z="1", arm="1", scope="the sample")
+        frame.loc[row, "w"] = 1.0
+        assert set(fit_cde(frame, {**FIT, "weights": "w"}, **STACKED)) == set(LEVELS)
+
+    def test_a_configuration_refusal_comes_first_on_every_path(self) -> None:
+        """W-r6-4: the X28 refusal keeps its text beside an empty cell."""
+        x28 = "cv_evaluation=True with baseline strata reports"
+        with pytest.raises(CapabilityError, match=x28):
+            fit_cde(stratum_cut_frame(), STRATA_FIT)
+        study = CausalStudy(stratum_cut_frame(), design=_design(strata=True))
+        for z in LEVELS:
+            with pytest.raises(CapabilityError, match=x28):
+                study.identify(LearnedRuleValue(intermediate=z)).estimate(
+                    **_options(cv_evaluation=True)
+                )
+        result = study.identify(LearnedRuleValue(intermediate=0.0)).estimate(**_options())
+        with pytest.raises(CapabilityError, match=x28):
+            cde_tmle().refit(result.data, intermediate_value=1.0)
+
+    @pytest.mark.parametrize("z", LEVELS)
+    def test_one_level_equals_that_level_of_two(self, z: float) -> None:
+        """W-r6-5: with strata, both learned and arm estimands, and with the bootstrap."""
+        frame = cde_frame(800, 0)
+        study = CausalStudy(frame, design=_design(strata=True))
+        level = study.identify(LearnedRuleValue(intermediate=z)).estimate(**_options())
+        both = fit_cde(frame, STRATA_FIT, **STACKED)[z]
+        assert set(level.estimates) == set(both.estimates)
+        for name, estimate in level.estimates.items():
+            _assert_equal(estimate, both.estimates[name])
+        arms = {"cross_fit": False, "n_bootstrap": 20}
+        level = study.identify(ControlledDirectEffect(intermediate=z)).estimate(**_options(**arms))
+        both = fit_cde(frame, STRATA_FIT, **STACKED, **arms, learned_rule=None)[z]
+        assert level.estimates and set(level.estimates) <= set(both.estimates)
+        for name, estimate in level.estimates.items():
+            _assert_equal(estimate, both.estimates[name])
+            np.testing.assert_array_equal(level.bootstrap.draws[name], both.bootstrap.draws[name])
+        assert level.bootstrap.n_failed == both.bootstrap.n_failed
+
+    def test_a_cell_without_an_observed_outcome_refuses(self) -> None:
+        """W-r6-6: with ``delta=`` the cell needs rows with an observed outcome."""
+        frame = cde_frame(800, 0).assign(D=1)
+        cell = (frame["A"] == 1) & (frame["Z"] == 1)
+        frame.loc[cell, ["D", "Y"]] = [0, np.nan]
+        fit = {**FIT, "delta": "D"}
+        options = {
+            "cross_fit": False,
+            "learned_rule": None,
+            "estimands": ("ey", "ate"),
+            "missingness_learner": LogisticRegression(max_iter=1000),
+        }
+        with pytest.raises(DataError) as caught:
+            fit_cde(frame, fit, **STACKED, **options)
+        _r6(caught, z="1", arm="1", scope="the sample")
+        assert "with an observed outcome" in str(caught.value)
+        study = CausalStudy(frame, design=_design(missingness="D"))
+        study_options = _options(
+            cross_fit=False, missingness_learner=LogisticRegression(max_iter=1000)
+        )
+        with pytest.raises(DataError, match=R6):
+            study.identify(ControlledDirectEffect(intermediate=1.0)).estimate(**study_options)
+        assert study.identify(ControlledDirectEffect(intermediate=0.0)).estimate(**study_options)
+        frame.loc[frame.index[cell][0], ["D", "Y"]] = [1, 1.0]
+        assert set(fit_cde(frame, fit, **STACKED, **options)) == set(LEVELS)
+
+    def test_a_known_regime_reads_only_the_arms_it_assigns(self, spy: list[int]) -> None:
+        """W-r6-7: ``Static(1)`` at Z = 1 reads the (1, 1) cell alone, so it runs."""
+        frame = cut_frame(0.0)
+        known = fit_cde(frame, **STACKED, learned_rule=None, interventions=[Static(1)])
+        regime = known[1.0].estimates["ey_regime[always 1]"]
+        # 0.4409 at 415fca9 (review r3 finding 4), which this fit's path does not change.
+        assert regime.psi == pytest.approx(0.44093691219843234, abs=1e-6)
+        ey1 = fit_cde(frame, **STACKED, learned_rule=None, estimands=("ey1",))
+        _assert_equal(ey1[1.0].estimates["ey1"], regime)
+        refused: list[dict[str, Any]] = [
+            {},
+            {"learned_rule": None, "estimands": ("ey", "ate")},
+            {"learned_rule": None, "estimands": ("ey0",)},
+            {"interventions": [Static(1)]},
+        ]
+        for overrides in refused:
+            SpyLogistic.calls.clear()
+            with pytest.raises(DataError) as caught:
+                fit_cde(frame, **STACKED, **_spied(), **overrides)
+            _r6(caught, z="1", arm="0", scope="the sample")
+            assert spy == [], overrides
+        with pytest.raises(DataError) as caught:
+            fit_cde(frame, STRATA_FIT, **STACKED, learned_rule=None, interventions=[Static(1)])
+        assert re.search(R6, str(caught.value))["scope"].startswith("baseline stratum")  # type: ignore[index]
+
+    def test_control_every_arm_in_the_sample_refuses_the_known_regime(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """W-r6-7's mutation: requiring every arm refuses an identified target."""
+        monkeypatch.setattr(
+            TMLE,
+            "_intermediate_arms_read",
+            lambda self, data, estimands: tuple(float(arm) for arm in data.arm_codes),
+        )
+        with pytest.raises(DataError, match=R6):
+            fit_cde(cut_frame(0.0), **STACKED, learned_rule=None, interventions=[Static(1)])
+
+    def test_the_projection_reads_every_arm(
+        self, spy: list[int], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """W-r6-9: probe 12, the CDE projection with no (A = 1, Z = 1) row."""
+        from cleverly import ConditionalContrast
+        from cleverly.effect_modification import EffectModification
+        from tests.studies.projection_evidence import CDE_BASIS, CDE_MODIFIERS
+
+        frame = cde_frame(800, 0)
+        frame = frame[~((frame["A"] == 1) & (frame["Z"] == 1))].reset_index(drop=True)
+        projection = {
+            "learned_rule": None,
+            "effect_modification": EffectModification(CDE_BASIS, CDE_MODIFIERS, "difference"),
+        }
+        with pytest.raises(DataError) as caught:
+            fit_cde(frame, **STACKED, **_spied(), **projection)
+        _r6(caught, z="1", arm="1", scope="the sample")
+        assert spy == []
+        contrast = ConditionalContrast(CDE_MODIFIERS, scale="difference", model=CDE_BASIS)
+        study = CausalStudy(frame, design=_design())
+        level = study.identify(
+            ControlledDirectEffect(intermediate=0.0, contrast=contrast)
+        ).estimate(**_options())
+        _unchecked(monkeypatch)
+        shipped = fit_cde(frame, **STACKED, **projection)
+        # 415fca9 reports cate_projection[W1] 0.3938 at Z = 1 for a cell with no row (probe 12).
+        assert shipped[1.0].estimates["cate_projection[W1]"].psi == pytest.approx(0.3938, abs=1e-3)
+        assert level.estimates
+        for name, estimate in level.estimates.items():
+            _assert_equal(estimate, shipped[0.0].estimates[name])
+
+    def test_control_the_rev_4_rule_reads_no_arm_for_the_projection(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """W-r6-9's mutation: every arm for a named list only, else the regime union."""
+        from cleverly.effect_modification import EffectModification
+        from tests.studies.projection_evidence import CDE_BASIS, CDE_MODIFIERS
+
+        def rev_4(self: TMLE, data: Any, estimands: Any) -> tuple[float, ...]:
+            named = {"ey", "ate", "ey_learned_rule", "ey_optimal_rule", "ate_learned_rule"}
+            if set(estimands) & named:
+                return tuple(float(arm) for arm in data.arm_codes)
+            return ()
+
+        monkeypatch.setattr(TMLE, "_intermediate_arms_read", rev_4)
+        frame = cde_frame(800, 0)
+        frame = frame[~((frame["A"] == 1) & (frame["Z"] == 1))].reset_index(drop=True)
+        fitted = fit_cde(
+            frame,
+            **STACKED,
+            learned_rule=None,
+            effect_modification=EffectModification(CDE_BASIS, CDE_MODIFIERS, "difference"),
+        )
+        assert set(fitted) == set(LEVELS)
+
+    def test_a_bootstrap_replicate_that_empties_a_cell_is_dropped(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """W-r6-8: each replicate meets R6 before its nuisances, and a refused one is counted."""
+        frame = cde_frame(800, 0).copy()
+        treated = frame.index[(frame["A"] == 1) & (frame["Z"] == 1)]
+        frame.loc[treated[2:], "Z"] = 0.0
+        events: list[str] = []
+        check, nuisances = TMLE._refuse_absent_cells, TMLE._nuisances
+
+        def checked(self: TMLE, *args: Any, **kwargs: Any) -> None:
+            events.append("check")
+            try:
+                check(self, *args, **kwargs)
+            except DataError:
+                events.append("refused")
+                raise
+
+        def fitted(self: TMLE, *args: Any, **kwargs: Any) -> Any:
+            events.append("nuisances")
+            return nuisances(self, *args, **kwargs)
+
+        monkeypatch.setattr(TMLE, "_refuse_absent_cells", checked)
+        monkeypatch.setattr(TMLE, "_nuisances", fitted)
+        result = fit_cde(
+            frame,
+            **STACKED,
+            cross_fit=False,
+            learned_rule=None,
+            estimands=("ey", "ate"),
+            n_bootstrap=50,
+        )
+        refused = events.count("refused")
+        # About e^-2 of the resamples hold neither row of the (1, 1) cell.
+        assert 0 < refused < 25
+        assert result[1.0].bootstrap.n_failed == refused
+        assert result[0.0].bootstrap.n_failed == 0
+        replicates = [index for index, event in enumerate(events) if event == "nuisances"]
+        assert replicates and all(events[index - 1] == "check" for index in replicates[1:])

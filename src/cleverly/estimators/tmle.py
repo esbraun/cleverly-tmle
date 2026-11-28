@@ -359,6 +359,7 @@ from ._nuisance import (
 from ._option_support import point_option_conditions
 from ._strata import (
     absent_arm_error,
+    absent_intermediate_cell,
     check_stratified_projection_rank,
     check_stratified_targets,
     embed_stratum_curve,
@@ -950,6 +951,20 @@ def fold_evaluated_cluster_refusal(
             alternative=alternative,
         )
     )
+
+
+def _fit_defaults() -> dict[str, Any]:
+    """The keyword arguments of :meth:`TMLE.fit` at their defaults.
+
+    :meth:`TMLE._plan_draws`, :meth:`TMLE._fit_levels` and :meth:`TMLE._planned_fit_levels`
+    prepare a :class:`~cleverly.data.CausalData` as :meth:`TMLE.fit` prepares one passed with
+    no other argument.
+    """
+    return {
+        name: parameter.default
+        for name, parameter in inspect.signature(TMLE._planned_fits).parameters.items()
+        if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    }
 
 
 class TMLE:
@@ -2106,11 +2121,32 @@ class TMLE:
         resolved._warn_dose_clusters(prepared)
         return resolved._fit_prepared(prepared)
 
-    def _fit_prepared(self, prepared: CausalData) -> TMLEResultSet:
-        """:meth:`fit` on prepared data, by an estimator whose ``ratio`` is resolved."""
+    def _fit_levels(self, data: CausalData, levels: Sequence[float]) -> TMLEResultSet:
+        """:meth:`fit` on prepared data with an intermediate, at the levels ``levels`` only.
+
+        A study estimand at one level of the intermediate reads that level alone, so it is
+        answered there and does not meet the cells of the other level (R6 of the X11 (f4, j4)
+        plan).  The shared nuisances do not depend on the level, so the fit of one level
+        equals that level of the two-level fit.  ``data`` is prepared as :meth:`fit` prepares
+        a :class:`~cleverly.data.CausalData` passed with no other argument.
+        """
+        prepared = self._prepare_for_fit(data, **_fit_defaults())
+        resolved = self._resolved(prepared)
+        resolved._warn_dose_clusters(prepared)
+        return resolved._fit_prepared(prepared, levels)
+
+    def _fit_prepared(
+        self, prepared: CausalData, levels: Sequence[float] = (0.0, 1.0)
+    ) -> TMLEResultSet:
+        """:meth:`fit` on prepared data, by an estimator whose ``ratio`` is resolved.
+
+        ``levels`` are the levels of the intermediate the call reports; :meth:`fit` reports
+        both, and :meth:`_fit_levels` passes one.
+        """
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
-        estimands = self._intermediate_preflight(prepared)
+        levels = tuple(float(level) for level in levels)
+        estimands = self._intermediate_preflight(prepared, levels)
 
         # The controlled direct effect at z = 0 and at z = 1 are different parameters,
         # so they get one result each -- but they are estimated from *identical*
@@ -2120,7 +2156,6 @@ class TMLE:
         # is predicted onto differ. Fitting per level refits all four to obtain two
         # extra prediction vectors, so the levels are estimated in one pass and the
         # targeting step is run twice against the shared fits.
-        levels = (0.0, 1.0)
         if self._shares_nuisances_across_levels():
             shared = self._prepare_shared(prepared, levels, estimands)
             results: dict[float | None, TMLEResult] = {
@@ -2191,18 +2226,20 @@ class TMLE:
         engine._defers_learned_tuners = True
         return engine._plan_prepared(prepared)
 
+    def _planned_fit_levels(self, data: CausalData, levels: Sequence[float]) -> PlannedFits:
+        """:meth:`_planned_fits` of :meth:`_fit_levels`: the fits of the levels ``levels`` only."""
+        prepared = self._prepare_for_fit(data, **_fit_defaults())
+        engine = copy.copy(self._resolved(prepared))
+        engine._defers_learned_tuners = True
+        return engine._plan_prepared(prepared, levels)
+
     def _plan_draws(self, data: Any) -> tuple[tuple[Folds, int], ...]:
         """The outer draws :meth:`fit` realizes on ``data`` passed with no other argument.
 
         :class:`~cleverly.estimators.ep.EPEstimator` reads the first draw's folds, which its
         sieve-size cross-validation splits on.
         """
-        defaults = {
-            name: parameter.default
-            for name, parameter in inspect.signature(TMLE._planned_fits).parameters.items()
-            if parameter.kind is inspect.Parameter.KEYWORD_ONLY
-        }
-        prepared = self._prepare_for_fit(data, **defaults)
+        prepared = self._prepare_for_fit(data, **_fit_defaults())
         estimands = self._single_preflight(prepared, None).estimands
         _, draws, _ = self._draw_preflight(prepared, estimands)
         return tuple(draws)
@@ -2238,21 +2275,22 @@ class TMLE:
         engine._plan_single(data, builder, state, intermediate_value)
         return builder.build(state)
 
-    def _plan_prepared(self, data: CausalData) -> PlannedFits:
-        """The record of :meth:`_planned_fits` on prepared data."""
+    def _plan_prepared(self, data: CausalData, levels: Sequence[float] = (0.0, 1.0)) -> PlannedFits:
+        """The record of :meth:`_planned_fits` on prepared data, at the levels ``levels``."""
         builder = PlanBuilder()
         state = self._plan_fold_state()
         self._plan_deferred(data, builder)
         if not data.has_intermediate:
             self._plan_single(data, builder, state, None)
             return builder.build(state)
-        estimands = self._intermediate_preflight(data)
+        levels = tuple(float(level) for level in levels)
+        estimands = self._intermediate_preflight(data, levels)
         self._plan_in_sample_tuners(data, builder)
-        builder.multiply("intermediate levels", 2)
+        builder.multiply("intermediate levels", len(levels))
         if not self._shares_nuisances_across_levels():
             # A variant that chooses its nuisances against a level's targeted loss refits
             # them per level (:meth:`_shares_nuisances_across_levels`).
-            for level in (0.0, 1.0):
+            for level in levels:
                 self._plan_single(data, builder, state, level)
             return builder.build(state)
         scaler = self._scaler(data)
@@ -2263,7 +2301,7 @@ class TMLE:
             self._plan_draw(
                 data, folds, seed, builder, state, flags={"fit_treatment": True}, config=shared
             )
-        for level in (0.0, 1.0):
+        for level in levels:
             level_estimands = self._single_preflight(data, level).estimands
             self._plan_in_sample_tuners(data, builder)
             config = self._config(data, level_estimands, scaler, draws[0][0])
@@ -2805,11 +2843,14 @@ class TMLE:
         atoms = declarations.pop("dose_atoms")
         return self._prepare(data, **declarations).with_dose_declarations(support, atoms)
 
-    def _intermediate_preflight(self, data: CausalData) -> tuple[str, ...]:
+    def _intermediate_preflight(
+        self, data: CausalData, levels: Sequence[float] = (0.0, 1.0)
+    ) -> tuple[str, ...]:
         """The checks of a fit with ``intermediate=`` before its shared nuisances, and its targets.
 
         :meth:`fit` and :meth:`_planned_fits` call it, so both refuse the same compositions
-        before any learner.
+        before any learner: the configuration refusals first, then an empty (arm, Z = z)
+        cell at each level in ``levels`` (:meth:`_refuse_absent_cells`).
         """
         if isinstance(self.learned_rule, FrozenLearnedRule):
             # Each level learns its own rules (X11 (j)), and this call reports every level, so
@@ -2828,7 +2869,92 @@ class TMLE:
         # The intermediate path otherwise fits shared nuisances before `_fit_single`.
         # Run the full preflight here as well, so every unsupported intermediate
         # composition fails before the shared nuisance learners are fitted.
-        return self._preflight_fit_configuration(data).estimands
+        estimands = self._preflight_fit_configuration(data).estimands
+        self._refuse_absent_cells(data, tuple(levels), estimands)
+        return estimands
+
+    def _intermediate_arms_read(
+        self, data: CausalData, estimands: Sequence[str]
+    ) -> tuple[float, ...]:
+        """The arms whose (arm, Z = z) cell a fit at a level reads in the whole sample.
+
+        Every arm by default: a learned or optimal rule compares every arm, an arm estimand
+        reports every arm, and the projection of a conditional contrast contrasts the arms at
+        ``Z = z``.  Fewer only when every resolved target reads fewer: known-regime values and
+        contrasts read the arms with positive density on some row (the regimes read ``W``
+        alone, so :meth:`RegimeSet.evaluate` gives them without a learner), and ``ey1`` and
+        ``ey0`` read arm 1 and arm 0, the codes their ``reads=`` declare.  The rule is on the
+        resolved targets, so a target it does not name reads every arm.
+        """
+        stems = set(estimands)
+        if stems and stems <= {"ey_regime", "ate_regime"} and self.interventions:
+            values = np.asarray(RegimeSet.evaluate(self.interventions, data).values)
+            return tuple(
+                float(arm)
+                for index, arm in enumerate(data.arm_codes)
+                if np.any(values[:, index, :] > 0.0)
+            )
+        single = {"ey0": 0.0, "ey1": 1.0}
+        if stems and stems <= set(single):
+            return tuple(single[stem] for stem in sorted(stems))
+        return tuple(float(arm) for arm in data.arm_codes)
+
+    def _refuse_absent_cells(
+        self,
+        data: CausalData,
+        levels: tuple[float, ...],
+        estimands: Sequence[str],
+    ) -> None:
+        """Refuse a level of the intermediate whose fit reads an empty (arm, Z = z) cell (R6).
+
+        Each level is a different parameter, and the value at level ``z`` is not identified
+        where the sample or a baseline stratum holds no positive-weight row with ``A = a`` and
+        ``Z = z`` (and an observed outcome with ``delta=``) for an arm ``a`` it reads
+        (:func:`~cleverly.estimators._strata.absent_intermediate_cell`).  A call that reports
+        both levels names the other level, when it passes, as a fit of its own.
+        """
+        if (
+            not data.has_intermediate
+            or data.treatment_kind == "vector"
+            or data.is_continuous_treatment
+        ):
+            # No level fit admits a treatment without arms; its own refusal names it.
+            return
+        arms = self._intermediate_arms_read(data, estimands)
+        regimes = set(estimands) <= {"ey_regime", "ate_regime"}
+
+        def remedy_for(other: float | None) -> Any:
+            def remedy(arm: float, code: int | None) -> str:
+                tail = (
+                    "collect rows in the empty cell"
+                    if code is None
+                    else "drop or merge the stratum, or collect rows in the empty cell"
+                )
+                if code is None and regimes:
+                    tail += f", or declare a regime that does not assign {data.arm_label(arm)}"
+                if other is None:
+                    return tail[0].upper() + tail[1:] + "."
+                return (
+                    "Estimate the other level alone, with the study estimand at "
+                    f"intermediate={other:g} or TMLE.refit(data, intermediate_value="
+                    f"{other:g}); or {tail}."
+                )
+
+            return remedy
+
+        for level in levels:
+            others = [
+                other
+                for other in (0.0, 1.0)
+                if len(levels) > 1
+                and other != level
+                and absent_intermediate_cell(data, other, arms, remedy=remedy_for(None)) is None
+            ]
+            error = absent_intermediate_cell(
+                data, level, arms, remedy=remedy_for(others[0] if others else None)
+            )
+            if error is not None:
+                raise error
 
     def _shares_nuisances_across_levels(self) -> bool:
         """Whether the two controlled direct effects can share one set of nuisance fits.
@@ -3962,7 +4088,11 @@ class TMLE:
         frozen = frozen_level_refusal(self.learned_rule, intermediate_value)
         if frozen is not None:
             raise CapabilityError.from_refusal(frozen)
-        return self._preflight_fit_configuration(data)
+        preflight = self._preflight_fit_configuration(data)
+        if intermediate_value is not None:
+            # A refit, a planned refit and the engine path fit one level (R6).
+            self._refuse_absent_cells(data, (float(intermediate_value),), preflight.estimands)
+        return preflight
 
     def _draw_preflight(
         self, data: CausalData, estimands: tuple[str, ...]
@@ -8232,6 +8362,10 @@ class TMLE:
         ``par`` and ``paf``, and a replicate that asked for them again failed, or
         published draws for names the fit never reported.
         """
+        if intermediate_value is not None:
+            # A resample that empties a cell the fit reads is a failed replicate, dropped and
+            # counted as every failed replicate is (``inference.bootstrap``), before any learner.
+            self._refuse_absent_cells(data, (float(intermediate_value),), estimands)
         scaler = self._scaler(data)
         draws = self._repeat_draws(data, estimands)
         fold_draws = [folds for folds, _ in draws]

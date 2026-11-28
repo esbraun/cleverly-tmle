@@ -7634,6 +7634,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             assert isinstance(self._study.data, CausalData)
             return self._effect_curve_estimator(normalized)._planned_fits(self._study.data)
         estimator = self._point_engine(normalized)
+        if self.functional.intermediate is not None:
+            # The study fits only the level its estimand reads (:meth:`_estimate_point`).
+            return estimator._planned_fit_levels(self._study.data, (self.functional.intermediate,))
         return cast("PlannedFits", estimator._planned_fits(self._study.data))
 
     def _checked_method(
@@ -7878,7 +7881,13 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         assert self._study is not None and isinstance(self._study.data, CausalData)
         functional = self.functional
         estimator = self._point_engine(method)
-        result_set = estimator.fit(self._study.data)
+        # A level of the intermediate is fitted alone: the request reads that level, and
+        # the other level's cells do not decide it (R6 of the X11 (f4, j4) plan).
+        result_set = (
+            estimator._fit_levels(self._study.data, (functional.intermediate,))
+            if functional.intermediate is not None
+            else estimator.fit(self._study.data)
+        )
         raw = (
             result_set[functional.intermediate]
             if functional.intermediate is not None

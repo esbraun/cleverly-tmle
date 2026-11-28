@@ -26,6 +26,7 @@ from ..learners._fitting import infer_task
 __all__ = [
     "FOLD_EVALUATED_STRATA_TARGETS",
     "absent_arm_error",
+    "absent_intermediate_cell",
     "check_stratified_msm_design",
     "check_stratified_targets",
     "companion_stratum_codes",
@@ -190,6 +191,79 @@ def refuse_absent_tilt_arms(data: CausalData) -> None:
         )
         if np.any(fractions <= 0.0):
             raise absent_arm_error(data, arms, fractions, code, "ipsi")
+
+
+def absent_intermediate_cell(
+    data: CausalData,
+    intermediate_value: float,
+    arms: Sequence[float],
+    *,
+    remedy: Callable[[float, int | None], str],
+) -> DataError | None:
+    r"""The refusal of a level of the intermediate that reads an empty (arm, Z = z) cell.
+
+    At level :math:`z` the value of rule :math:`d` is :math:`E_W \bar Q_0(d(W), z, W)` with
+    :math:`\bar Q_0(a, z, w) = E(Y \mid A = a, Z = z, W = w)`, identified only where the cell
+    :math:`(A = a, Z = z)` holds rows, and with ``delta=`` rows with an observed outcome.  A
+    learned rule compares every arm, and so do the arm estimands and the projection of a
+    conditional contrast, so the fit reads every arm the caller passes in ``arms``.  Inside a
+    baseline stratum the stratum targeting reads every arm's share (:func:`absent_arm_error`), so
+    every arm is read in every stratum.  When a cell the fit reads holds no positive-weight row
+    the value is not identified there, and the fitted number would be the outcome learner's
+    extrapolation with an interval that sees only its plug-in spread.  The check reads the data
+    only, so it runs before any learner.  It reads whole cells, not positivity row by row.
+
+    Parameters
+    ----------
+    data : CausalData
+        The data of the fit.  The check returns ``None`` without an intermediate and on a
+        continuous or vector treatment, which no level fit admits.
+    intermediate_value : float
+        The level :math:`z`.
+    arms : sequence of float
+        The arm codes the fit reads in the whole sample.
+    remedy : callable
+        Builds the alternative from the arm code and the stratum code (``None`` for the
+        whole sample).
+
+    Returns
+    -------
+    DataError or None
+        The refusal at the first empty cell, the whole sample first, or ``None`` when every
+        cell the fit reads holds a positive-weight row.
+    """
+    if data.intermediate is None or data.treatment_kind == "vector" or data.is_continuous_treatment:
+        return None
+    z = float(intermediate_value)
+    level = np.asarray(data.intermediate == z, dtype=bool) & np.asarray(data.observed, dtype=bool)
+    weights = np.asarray(data.weights, dtype=float)
+    treatment = np.asarray(data.treatment, dtype=float)
+    scopes: list[tuple[BoolArray, Sequence[float], int | None]] = [
+        (np.ones(data.n, dtype=bool), tuple(arms), None)
+    ]
+    if data.has_strata:
+        assert data.strata is not None
+        scopes += [
+            (np.asarray(data.strata == code, dtype=bool), tuple(data.arm_codes), code)
+            for code in range(data.n_strata)
+        ]
+    name = data.intermediate_name or "Z"
+    observed = " with an observed outcome" if data.has_missing_outcome else ""
+    for mask, wanted, code in scopes:
+        for arm in wanted:
+            cell = mask & level & (treatment == float(arm))
+            if float(np.sum(weights[cell])) > 0.0:
+                continue
+            where = "the sample" if code is None else f"baseline stratum {data.stratum_label(code)}"
+            label = data.arm_label(arm)
+            return DataError(
+                f"the fit at {name} = {z:g} reads E(Y | {data.treatment_name} = {label}, "
+                f"{name} = {z:g}, W), and {where} contains no positive-weight observation"
+                f"{observed} with {data.treatment_name} = {label} and {name} = {z:g}; the value "
+                "at this level is not identified there",
+                alternative=remedy(float(arm), code),
+            )
+    return None
 
 
 #: One requirement of an outcome-adaptive design family: the rows that must exist in every
