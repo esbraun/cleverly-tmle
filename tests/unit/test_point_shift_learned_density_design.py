@@ -333,3 +333,25 @@ def test_the_declared_reading_holds() -> None:
     properties_table = pd.read_csv(study.STUDY.artifacts / "properties.csv")
     assert set(properties_table["cell"]) == set(study.PROPERTY_CELLS["interval_calibration"])
     assert properties_table["passed"].all()
+
+
+def test_an_unmeasured_density_setting_or_bin_count_stays_out_of_the_row() -> None:
+    """The probe's cross-fitted default booster, and the measured booster on other bins, miss."""
+    from sklearn.ensemble import HistGradientBoostingClassifier
+
+    frame = law.draw(400, 3)
+    row = study.support_row()
+    others = {
+        "default booster": {"treatment_learner": HistGradientBoostingClassifier(random_state=7)},
+        "deeper booster": {
+            "treatment_learner": HistGradientBoostingClassifier(
+                **{**law.BOOSTER, "max_depth": 3}, random_state=7
+            )
+        },
+        "other bins": {"density_bins": 20},
+    }
+    for name, override in others.items():
+        other = law.estimator("crossfit_learned", frame, 7, **override)
+        assert not row.matches(*_key(other, frame)), name
+    seeded = law.estimator("crossfit_learned", frame, 123)
+    assert row.matches(*_key(seeded, frame)), "the seed is not a setting"

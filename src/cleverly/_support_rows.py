@@ -28,8 +28,18 @@ from ._support import (
     Kind,
     SupportKey,
     SupportRow,
+    density_learner_signature,
 )
 from .learners.glm import GLM
+
+#: The regularized booster density that ``point-shift-learned-density`` measured cross-fitted
+#: (X121 b2), without its seed. Its row covers these settings on 40 core bins and no others.
+LEARNED_DENSITY_BOOSTER: Final[Mapping[str, Any]] = {
+    "max_depth": 2,
+    "learning_rate": 0.05,
+    "max_iter": 200,
+    "l2_regularization": 1.0,
+}
 
 __all__ = [
     "ADAPTIVE_LEARNER_CELLS",
@@ -613,7 +623,13 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 outcome=("gaussian", "bounded"),
                 treatment=("continuous",),
                 splitting=("stacked",),
-                options={"ratio": "density"},
+                options={
+                    "ratio": "density",
+                    "density_learner": density_learner_signature(
+                        HistGradientBoostingClassifier(**LEARNED_DENSITY_BOOSTER)
+                    ),
+                    "density_bins": 40,
+                },
                 cells=[
                     "crossfit_learned_capped",
                     "crossfit_learned_uncapped",
@@ -622,11 +638,13 @@ def _t_rows() -> tuple[SupportRow, ...]:
                 limits=[
                     "Measured at n = 3,000 on one law (shift_dgp, a normal dose with a quadratic "
                     "outcome) for additive shifts of +0.5 (capped and uncapped) and +1.0, with a "
+                    "degree-2 least-squares outcome model that is correct for the law, a "
                     "regularized HistGradientBoostingClassifier density (max_depth 2, learning "
                     "rate 0.05, 200 iterations, l2 1.0) on 40 core bins, three folds and an "
-                    "outcome range declared from the law. Other policy kinds, booster settings, "
-                    "bin counts and sample sizes are not measured. An in-sample learned density "
-                    "is not covered."
+                    "outcome range declared from the law. The row pins the density learner, its "
+                    "settings and the bin count; it does not read the outcome learner, the policy "
+                    "kind, the law or the sample size, which the analyst judges. An in-sample "
+                    "learned density is not covered."
                 ],
             ),
             learners={"treatment": HistGradientBoostingClassifier},

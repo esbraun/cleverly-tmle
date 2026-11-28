@@ -242,12 +242,16 @@ An in-sample point policy fit of a continuous dose on the density route reads
 learners of the shift studies do; otherwise it is the learner's family. The shift rows give the
 method the exact density and declare `known`, so a fit that learns its density matches none of them
 and reads experimental, with the shift row as the nearest. A user who passes the true density may
-declare it the same way. A cross-fitted density-route fit does not read the family: the
+declare it the same way.
+
+A cross-fitted density-route fit does not read the family: the
 [learned-density study](method-evidence/point-shift-learned-density.md) measured a cross-fitted
-additive shift whose density is a regularized `HistGradientBoostingClassifier`, and its row pins
-that class as the treatment learner, so such a fit on a bounded continuous outcome reads supported
-and one with another density learner reads experimental. The same study found the in-sample
-learned interval narrow, covering 0.8967 for a `+1.0` shift.
+additive shift whose density is a regularized `HistGradientBoostingClassifier` on 40 bins. Out
+of fold the key reads the density learner's class and every setting but its seed
+(`density_learner_signature`) and the bin count, so only a fit with exactly that learner and bin
+count matches the study's row; the row's limits name what it does not read, among them the outcome
+learner and the policy kind. The same study found the in-sample learned interval narrow, covering
+0.8967 for a `+1.0` shift.
 
 The rate at which a density ratio read from the binned density converges is the package's own
 argument, measured by the witnesses and the density-tails study, and not a published theorem

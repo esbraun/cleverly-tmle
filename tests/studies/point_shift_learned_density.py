@@ -127,11 +127,12 @@ PROPERTY_CELLS = {
 #: What the row added by a passing reading states beyond its key.
 ROW_LIMITS = (
     "Measured at n = 3,000 on one law (shift_dgp, a normal dose with a quadratic outcome) for "
-    "additive shifts of +0.5 (capped and uncapped) and +1.0, with a regularized "
-    "HistGradientBoostingClassifier density (max_depth 2, learning rate 0.05, 200 iterations, "
-    "l2 1.0) on 40 core bins, three folds and an outcome range declared from the law. Other "
-    "policy kinds, booster settings, bin counts and sample sizes are not measured. An in-sample "
-    "learned density is not covered."
+    "additive shifts of +0.5 (capped and uncapped) and +1.0, with a degree-2 least-squares "
+    "outcome model that is correct for the law, a regularized HistGradientBoostingClassifier "
+    "density (max_depth 2, learning rate 0.05, 200 iterations, l2 1.0) on 40 core bins, three "
+    "folds and an outcome range declared from the law. The row pins the density learner, its "
+    "settings and the bin count; it does not read the outcome learner, the policy kind, the law "
+    "or the sample size, which the analyst judges. An in-sample learned density is not covered."
 )
 
 
@@ -140,14 +141,20 @@ def support_row() -> Any:
 
     Built from the cross-fitted arm's computed key: stacked splitting, a bounded continuous
     outcome (the declared range), the density route, and the booster class as the treatment
-    learner. The cross-fitted key carries no ``density_learner_family``, so the learner class is
-    what keeps an oracle or default-learner fit out of the row
-    (``test_point_shift_learned_density_design``).
+    learner. The cross-fitted key carries no ``density_learner_family``; it carries the density
+    learner's signature and bin count (``density_learner_signature``), so an oracle, a
+    default-learner or a differently tuned booster fit stays out of the row
+    (``test_point_shift_learned_density_design``). Amended after the run, before registration:
+    the declaration pinned only the booster class, and the implementation review found that a
+    cross-fitted default booster, whose SE is several times its spread in the probe of the
+    modified-treatment-policy reference, matched it. Narrowing the row to the measured settings
+    licenses less and moves no verdict.
     """
     from dataclasses import replace
 
     from sklearn.ensemble import HistGradientBoostingClassifier
 
+    from cleverly._support import density_learner_signature
     from cleverly._support_rows import point_row
 
     row = point_row(
@@ -157,7 +164,13 @@ def support_row() -> Any:
         outcome=("gaussian", "bounded"),
         treatment=("continuous",),
         splitting=("stacked",),
-        options={"ratio": "density"},
+        options={
+            "ratio": "density",
+            "density_learner": density_learner_signature(
+                HistGradientBoostingClassifier(**law.BOOSTER)
+            ),
+            "density_bins": law.DENSITY_BINS,
+        },
         cells=list(CALIBRATION_LABELS),
         limits=[ROW_LIMITS],
     )

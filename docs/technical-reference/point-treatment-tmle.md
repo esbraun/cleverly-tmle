@@ -2901,8 +2901,11 @@ regularized booster (`max_depth=2`, `learning_rate=0.05`, `max_iter=200`,
 `l2_regularization=1.0`) with a degree-2 least-squares outcome model on 1,200 draws of the same
 law. For the `+1.0` shift the in-sample SE ratio is 0.8025 with coverage 0.8967, the cross-fitted
 SE ratio 1.0382 with coverage 0.9583 under a declared outcome range, and the exact density fitted
-in sample 0.9570. Its support row covers the cross-fitted fit with that booster class. An
-in-sample fit that learns its density reads experimental.
+in sample 0.9570. Its support row covers a cross-fitted density-route fit whose density
+learner has exactly those settings on 40 bins; the default booster of the probe, or any other
+setting or bin count, reads experimental. The row does not read the outcome learner or the policy
+kind, and the study fitted an outcome model that is correct for the law. An in-sample fit that
+learns its density reads experimental.
 
 The table gives the expected ratio at the observed dose under the true density.
 An upper cap alone does not preserve conditional support for negative shifts or support gaps.
@@ -2921,8 +2924,8 @@ A fold mean far from its reference value can signal density estimation error, bu
 Estimated zero densities at assigned doses flag model support failures.
 These diagnostics do not establish true conditional support or identification.
 
-No source here calibrates a threshold, so the report gives the number and no warning. No
-registered study covers an estimated or cross-fitted shift density.
+No source here calibrates a threshold, so the report gives the number and no warning. The
+learned-density study above measures one learned shift density and calibrates no threshold.
 
 Evidence: the probe scripts and logs in `reviews/notebook-review/probes/iv-n3/` (`probe_ic.py`,
 `summary_ic.log`, `fold_check.log`), the analysis in

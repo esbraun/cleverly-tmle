@@ -93,8 +93,13 @@ published under `reporting` with the owner `X121-learned-density-finite-sample`.
 
 Every primary verdict and every `interval_calibration` verdict of the cross-fitted arm passed, and
 all six controls failed as designed, so the reading added the support row
-`T-point-shift-learned-density`. A cross-fitted density-route fit with this booster class on a
-bounded continuous outcome now reads `supported`. One primary cell of the in-sample learned arm is
+`T-point-shift-learned-density`. A cross-fitted density-route fit on a bounded continuous outcome
+whose density learner has exactly the measured booster's settings, on 40 bins, now reads
+`supported`. The declaration pinned only the booster class; the row was narrowed before
+registration to the settings and bin count measured, because a cross-fitted default booster
+matched the class and its SE is several times its spread in the probe of the
+[modified treatment policies](../point-treatment-tmle.md#modified-treatment-policies) reference.
+Narrowing licenses less and moves no verdict. One primary cell of the in-sample learned arm is
 red: the `+1.0` contrast covers 0.8967 with an SE ratio of 0.8025. No fit failed.
 
 | reading | value | source |
@@ -120,13 +125,15 @@ mean needs no density ratio, and the three arms read 0.9450 on it.
 
 The in-sample learned interval is narrow on every contrast: each of its three SE-ratio intervals
 lies wholly below 1, and the `+0.5` cells pass only the wide screens. The oracle arm, fitted on the
-same draws in sample, is close to calibrated, so the shortfall comes from the learned density and
-not from fitting in sample. The harness records the fitted density ratio at the observed doses.
-For the `+1.0` shift its mean SD over the draws is 1.0925 in sample, against 1.3109 for the true
-ratio, so the in-sample fit smooths the ratio toward 1 and its influence-curve SE omits the error
-of a density learned on the same rows. The cross-fitted ratio is noisier, with a mean SD of 1.9701,
-and its interval is slightly wide: at 19,600 draws the capped contrast's SE ratio interval ends
-above 1, at 1.0285, while staying inside the calibration band.
+same draws in sample, is close to calibrated, and so is the learned density cross-fitted. The
+shortfall appears only when the density is learned and read on the same rows; the cross-fitted arm
+also differs in its outcome fit and its declared outcome range, so the comparison does not isolate
+one cause. The harness records the fitted density ratio at the observed doses. For the `+1.0`
+shift its mean SD over the draws is 1.0925 in sample, against 1.3109 for the true ratio, so the
+in-sample ratio is less variable than the true one, which fits a narrow interval but is not shown
+to cause it. The cross-fitted ratio is noisier, with a mean SD of 1.9701, and its interval is
+slightly wide: at 19,600 draws the capped contrast's SE-ratio interval lies wholly above 1, from
+1.0285, while staying inside the calibration band.
 
 ### What the controls show
 
@@ -137,8 +144,9 @@ quarter too short on each contrast.
 The readings do not show the items in this list.
 
 - An in-sample learned density. It adds no row and reads `experimental`.
-- Another law, sample size, bin count, booster setting or density learner class. The row pins the
-  booster class and nothing else of its settings.
+- Another law, sample size, outcome learner or policy kind. The row pins the density learner, its
+  settings and the bin count, and reads none of these, so such a fit can read `supported` on the
+  strength of this one law; the study's outcome model was correct for the law.
 - A cross-fitted fit without a declared outcome range. The study declared it from the law, which
   real data do not supply.
 - Other policy kinds than additive shifts, with or without a cap.
@@ -246,8 +254,9 @@ module, which the design test recomputes.
 | limitation | what it means for use |
 | --- | --- |
 | There is no cross-implementation evidence | No external package fits this estimator with this density learner. The row rests on accuracy against the known truth and on the calibration cells |
-| One law and one sample size | The study fits `shift_dgp()` at n = 3,000 only. The support key holds neither, so a cross-fitted fit of another law or size with the same booster class also reads `supported` |
-| One booster setting and one bin count | The row pins `HistGradientBoostingClassifier` as the treatment learner and nothing of its settings or of `density_bins`. The default booster, cross-fitted, gave an SE about four times the empirical SD in the probe of the [modified treatment policies](../point-treatment-tmle.md#modified-treatment-policies) reference |
+| One law and one sample size | The study fits `shift_dgp()` at n = 3,000 only. The support key holds neither, so a cross-fitted fit of another law or size with the same booster settings also reads `supported` |
+| One booster setting and one bin count | The row pins the regularized `HistGradientBoostingClassifier`, every setting but its seed, and 40 bins, so another learner, setting or bin count reads `experimental`. The default booster, cross-fitted with a `HistGradientBoostingRegressor` outcome learner, gave an SE about four times the empirical SD in the probe of the [modified treatment policies](../point-treatment-tmle.md#modified-treatment-policies) reference |
+| One outcome learner and one policy kind | The study's degree-2 least-squares outcome model is correct for the law, and its policies are additive shifts. The row reads neither the outcome learner nor the policy kind, so a fit with a flexible outcome learner or a multiplicative or piecewise policy matches it on this evidence alone |
 | The outcome range was declared from the law | A cross-fitted fit of a continuous outcome needs `q_bounds`. On real data the range is the analyst's declaration, and an outcome outside it refuses the fit |
 | An in-sample learned density is not covered | Its interval is narrow on every contrast and covers 0.8967 for the `+1.0` shift. Such a fit reads `experimental`, and the red cell stays published under `reporting` |
 | The cross-fitted interval is slightly wide | The capped contrast's calibration SE-ratio interval lies above 1, inside the band |
