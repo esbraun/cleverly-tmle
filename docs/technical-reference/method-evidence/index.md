@@ -156,6 +156,7 @@ mtp-pricing
 mtp-pricing-censored
 mtp-tuning
 point-modified-treatment-policies
+point-shift-learned-density
 repeated-outcome-ipsi
 stochastic-categorical-longitudinal-tmle
 stochastic-point-treatment-regimes

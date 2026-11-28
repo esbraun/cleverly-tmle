@@ -1547,6 +1547,23 @@ _ADAPTIVE_IPTW: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, st
     ),
 )
 
+#: X121 (b2): the in-sample learned arm of ``point-shift-learned-density``. Its row is the
+#: cross-fitted one, and an in-sample fit that learns its density matches no row, so the red
+#: cell sits outside the row's configuration and adds no shortfall to it.
+_X121: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
+    (
+        "point-shift-learned-density",
+        "truth",
+        "cleverly-point-shift-learned-density/shift_law/"
+        "in_sample_learned: ate_policy[+1.0 uncapped vs current practice]",
+        "T-point-shift-learned-density",
+        ("wald",),
+        EXPERIMENTAL,
+        "",
+        "",
+    ),
+)
+
 #: The committed decisions, one per positive red row.
 DISPOSITIONS: Mapping[RedKey, Disposition] = {
     RedKey(slug, kind, key): Disposition(row, kinds, disposition, limit, flag)
@@ -1556,6 +1573,7 @@ DISPOSITIONS: Mapping[RedKey, Disposition] = {
         *_X40_BOUNDARIES,
         *_ADAPTIVE_IPTW,
         *_X39,
+        *_X121,
     )
 }
 
@@ -1606,6 +1624,12 @@ NO_SHORTFALL: Mapping[RedKey, str] = {
         "the key reads the mechanism learner family, and a boosted fit matches no row"
         for key, entry in DISPOSITIONS.items()
         if key.slug == "adaptive-iptw" and entry.disposition == EXPERIMENTAL
+    },
+    **{
+        key: "the cell fits the density in sample, outside the configuration of the row: the row "
+        "is cross-fitted, and an in-sample fit that learns its density matches no row"
+        for key in DISPOSITIONS
+        if key.slug == "point-shift-learned-density"
     },
     **{
         key: "the cell measures a hypothesis test, and the label has no test kind; the row's "

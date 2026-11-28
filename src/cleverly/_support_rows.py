@@ -18,6 +18,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Final
 
+from sklearn.ensemble import HistGradientBoostingClassifier
+
 from ._support import (
     DEFAULT_BAND_OPTION,
     KEY_AXES,
@@ -600,6 +602,34 @@ def _t_rows() -> tuple[SupportRow, ...]:
             options={"ratio": "density", "density_learner_family": "known"},
             cells=["policy_point"],
             limits=["One calibration cell is red."],
+        )
+    )
+    rows.append(
+        replace(
+            point_row(
+                "T-point-shift-learned-density",
+                ["point-shift-learned-density"],
+                families=("P7",),
+                outcome=("gaussian", "bounded"),
+                treatment=("continuous",),
+                splitting=("stacked",),
+                options={"ratio": "density"},
+                cells=[
+                    "crossfit_learned_capped",
+                    "crossfit_learned_uncapped",
+                    "crossfit_learned_one",
+                ],
+                limits=[
+                    "Measured at n = 3,000 on one law (shift_dgp, a normal dose with a quadratic "
+                    "outcome) for additive shifts of +0.5 (capped and uncapped) and +1.0, with a "
+                    "regularized HistGradientBoostingClassifier density (max_depth 2, learning "
+                    "rate 0.05, 200 iterations, l2 1.0) on 40 core bins, three folds and an "
+                    "outcome range declared from the law. Other policy kinds, booster settings, "
+                    "bin counts and sample sizes are not measured. An in-sample learned density "
+                    "is not covered."
+                ],
+            ),
+            learners={"treatment": HistGradientBoostingClassifier},
         )
     )
     rows.append(

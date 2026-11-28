@@ -2896,6 +2896,14 @@ estimator applies no bound to the ratio, and the first row is its behavior. The 
 3000 rows on seed 9000. The influence curve matched an independent recomputation to 5e-12 in
 every fit, so the cause is the ratio and not the formula.
 
+The registered [learned-density study](method-evidence/point-shift-learned-density.md) fits a
+regularized booster (`max_depth=2`, `learning_rate=0.05`, `max_iter=200`,
+`l2_regularization=1.0`) with a degree-2 least-squares outcome model on 1,200 draws of the same
+law. For the `+1.0` shift the in-sample SE ratio is 0.8025 with coverage 0.8967, the cross-fitted
+SE ratio 1.0382 with coverage 0.9583 under a declared outcome range, and the exact density fitted
+in sample 0.9570. Its support row covers the cross-fitted fit with that booster class. An
+in-sample fit that learns its density reads experimental.
+
 The table gives the expected ratio at the observed dose under the true density.
 An upper cap alone does not preserve conditional support for negative shifts or support gaps.
 

@@ -16,7 +16,7 @@ import pandas as pd
 import pytest
 from scipy.stats import norm
 
-from cleverly._support import density_learner_family, point_key
+from cleverly._support import density_learner_family, point_key, registered_rows
 from cleverly.data.causal_data import CausalData
 from cleverly.learners.density import bin_edges
 from tests.studies import _point_shift_learned_density_law as law
@@ -316,3 +316,20 @@ def test_the_study_is_registered_after_its_declared_run() -> None:
     if not (study.STUDY.artifacts / "manifest.json").exists():
         pytest.skip("the declared run has not been made")
     assert study.STUDY.slug in {record.slug for record in registered()}
+
+
+def test_the_registered_row_is_the_declared_row() -> None:
+    """The passing reading added :func:`support_row` verbatim to the shipped rows."""
+    rows = {row.id: row for row in registered_rows()}
+    assert rows["T-point-shift-learned-density"] == study.support_row()
+
+
+def test_the_declared_reading_holds() -> None:
+    """The committed verdicts meet the reading that licenses the row (the study docstring)."""
+    performance = pd.read_csv(study.STUDY.artifacts / "performance-tests.csv")
+    gated = performance[performance["estimand"].str.startswith(f"{study.GATED_ARM}: ")]
+    assert len(gated) == len(law.PARAMETERS)
+    assert gated["passed"].all()
+    properties_table = pd.read_csv(study.STUDY.artifacts / "properties.csv")
+    assert set(properties_table["cell"]) == set(study.PROPERTY_CELLS["interval_calibration"])
+    assert properties_table["passed"].all()
