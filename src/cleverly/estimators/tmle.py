@@ -93,12 +93,14 @@ from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal, cast, get_args
 import numpy as np
 
 from .._inference_status import (
+    ARM_MEAN_POINT_ESTIMANDS,
     CONSTANT_ARM_CELL_STATUS,
     HELD_OUT_SCALE,
     MEASURED_POINT_ESTIMAND,
     MINIMUM_FOLD_TRAINING_CLUSTERS,
     OUT_OF_RANGE_STATUS,
     InferenceStatus,
+    estimand_interval_floor,
     supplies_inference,
 )
 from .._planned_fits import FitCounter, PlanBuilder, PlanItem, PlannedFits
@@ -117,6 +119,7 @@ from .._support import (
     band_shape,
     band_support,
     classify_point_fit,
+    point_fit_floor_family,
     point_interval_floor,
     record_fit,
     record_refusal_site,
@@ -6816,16 +6819,26 @@ class TMLE:
             headline_reference = cluster_reference.with_fold_evaluated(
                 fold_evaluated_report, len(indices)
             )
-        # A floor family's floor holds for the ATE its study measured at every count; every
-        # other estimate keeps the default floor (unmeasured_estimand_status).
-        general = unmeasured_estimand_status(
-            status,
-            prepared.cluster,
-            strata=prepared.strata,
-            weights=prepared.weights if prepared.is_weighted else None,
-        )
+        # A floor family's floor holds for the ATE its study measured at every count, and its
+        # arm-mean floor for ey0 and ey1; every other estimate keeps the default floor
+        # (unmeasured_estimand_status).
+        family = point_fit_floor_family(self, data)
+
+        def estimand_status(name: str) -> InferenceStatus:
+            if name == MEASURED_POINT_ESTIMAND:
+                return status
+            return unmeasured_estimand_status(
+                status,
+                prepared.cluster,
+                strata=prepared.strata,
+                weights=prepared.weights if prepared.is_weighted else None,
+                floor=estimand_interval_floor(
+                    family, arm_mean=name in ARM_MEAN_POINT_ESTIMANDS, longitudinal=False
+                ),
+            )
+
         statuses = {
-            name: status if name == MEASURED_POINT_ESTIMAND else general
+            name: estimand_status(name)
             for report in (estimates, pooled_report, fold_evaluated_report)
             for name in report
         }

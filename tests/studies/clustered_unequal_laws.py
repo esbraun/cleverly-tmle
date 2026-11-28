@@ -73,6 +73,10 @@ GAMMA_PILOT: Final[str] = (
 #: The arm-by-latent coefficient of the declared law. ``clustered_dgp(family="binomial")`` has
 #: 8; the declared law has 0. The unit tests and probes pass other values explicitly.
 EFFECT_MODIFIER: Final[float] = 0.0
+#: The main latent coefficient: the cluster latent's coefficient in the untreated arm. Every
+#: registered law has 0.6; the arm-mean laws of ``few-cluster-arm-means`` pass another value so
+#: that each arm carries a cluster effect.
+LATENT: Final[float] = 0.6
 #: The absolute and relative tolerances of the one-dimensional truth integrals.
 TRUTH_TOLERANCE: Final[float] = 1e-13
 #: Rows per cluster of the cluster-level covariate law.
@@ -99,6 +103,7 @@ def informative_mean(
     delta: float,
     gamma: float,
     effect_modifier: float = EFFECT_MODIFIER,
+    latent: float = LATENT,
 ) -> np.ndarray:
     """The outcome mean of the informative law."""
     score = size_score(size)
@@ -107,7 +112,7 @@ def informative_mean(
         + 0.8 * a
         + 0.5 * w1
         + 0.3 * w2
-        + 0.6 * w3
+        + latent * w3
         + effect_modifier * a * w3
         + delta * score
         + gamma * a * score
@@ -123,6 +128,7 @@ def draw_informative(
     gamma: float = GAMMA,
     effect_modifier: float = EFFECT_MODIFIER,
     sizes: np.ndarray | None = None,
+    latent: float = LATENT,
 ) -> pd.DataFrame:
     """One sample of ``n_clusters`` independent clusters of the informative law.
 
@@ -143,7 +149,15 @@ def draw_informative(
     size = drawn[cluster].astype(float)
     a = rng.binomial(1, informative_propensity(w1, w2)).astype(float)
     mean = informative_mean(
-        w1, w2, w3, a, size, delta=delta, gamma=gamma, effect_modifier=effect_modifier
+        w1,
+        w2,
+        w3,
+        a,
+        size,
+        delta=delta,
+        gamma=gamma,
+        effect_modifier=effect_modifier,
+        latent=latent,
     )
     y = rng.binomial(1, mean).astype(float)
     return pd.DataFrame({"Y": y, "A": a, "W1": w1, "W2": w2, "cluster": cluster, "size": size})
@@ -171,16 +185,18 @@ def size_means(
     gamma: float,
     effect_modifier: float = EFFECT_MODIFIER,
     tolerance: float = TRUTH_TOLERANCE,
+    latent: float = LATENT,
 ) -> tuple[np.ndarray, np.ndarray]:
     """``m_0(N)`` and ``m_1(N)`` on :data:`SIZES`.
 
     Given ``N`` and the arm, the logit is a constant plus
-    :math:`0.5 W_1 + 0.3 W_2 + (0.6 + k a) W_3`, a normal with variance
-    :math:`0.34 + (0.6 + k a)^2`, where :math:`k` is the effect modifier.
+    :math:`0.5 W_1 + 0.3 W_2 + (c + k a) W_3`, a normal with variance
+    :math:`0.34 + (c + k a)^2`, where :math:`c` is the main latent coefficient (0.6 on every
+    registered law) and :math:`k` the effect modifier.
     """
     by_arm = []
     for arm in (0.0, 1.0):
-        scale = float(np.sqrt(0.5**2 + 0.3**2 + (0.6 + effect_modifier * arm) ** 2))
+        scale = float(np.sqrt(0.5**2 + 0.3**2 + (latent + effect_modifier * arm) ** 2))
         centers = -0.4 + 0.8 * arm + (delta + gamma * arm) * size_score(SIZES)
         by_arm.append(np.array([logistic_normal_mean(float(c), scale, tolerance) for c in centers]))
     return by_arm[0], by_arm[1]
@@ -191,13 +207,14 @@ def informative_truth(
     gamma: float = GAMMA,
     effect_modifier: float = EFFECT_MODIFIER,
     tolerance: float = TRUTH_TOLERANCE,
+    latent: float = LATENT,
 ) -> dict[str, float]:
     r"""The row-weighted and the cluster-average truths of the informative law.
 
     Keys ``ey0``, ``ey1`` and ``ate`` are the row-weighted :math:`\mu_I`. Keys with the
     suffix ``_cluster`` are the cluster-average :math:`\mu_C`.
     """
-    m0, m1 = size_means(delta, gamma, effect_modifier, tolerance)
+    m0, m1 = size_means(delta, gamma, effect_modifier, tolerance, latent)
     size = SIZES.astype(float)
     individual = {"ey0": float(size @ m0 / size.sum()), "ey1": float(size @ m1 / size.sum())}
     cluster = {"ey0": float(m0.mean()), "ey1": float(m1.mean())}

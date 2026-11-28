@@ -82,6 +82,7 @@ from .._inference_status import (
     TRIMMED_RATIO_STATUS,
     InferenceStatus,
     cluster_interval_floor,
+    estimand_interval_floor,
     is_labelled,
     longitudinal_floor_family,
     precedent_status,
@@ -4882,6 +4883,7 @@ def _estimates(
     policy: _PolicyMatrix | None = None,
     boundary_reach: str | None = None,
     measured: bool = False,
+    family: str | None = None,
 ) -> _Reported:
     """Compose every reported name, its estimate, its index and its fits, in one pass.
 
@@ -4919,6 +4921,10 @@ def _estimates(
         Whether the fit has its floor family's measured design (:func:`measured_design`).
         Only then does its always-versus-never contrast read the family's floor; otherwise
         every estimate keeps the default longitudinal floor.
+    family : str or None, default None
+        The fit's floor family (:func:`~cleverly._inference_status.longitudinal_floor_family`).
+        On a measured design, the means of the always-treat and never-treat static plans read
+        its arm-mean floor (:data:`~cleverly._inference_status.ARM_MEAN_INTERVAL_FLOORS`).
 
     Returns
     -------
@@ -4933,6 +4939,19 @@ def _estimates(
         data.cluster,
         weights=data.weights if data.is_weighted else None,
         longitudinal=True,
+    )
+    # On the measured design the always-treat and never-treat levels keep the family's
+    # arm-mean floor, measured at every count by few-cluster-arm-means (X54 part (k)).
+    arm_general = (
+        unmeasured_estimand_status(
+            inference,
+            data.cluster,
+            weights=data.weights if data.is_weighted else None,
+            longitudinal=True,
+            floor=estimand_interval_floor(family, arm_mean=True, longitudinal=True),
+        )
+        if measured and not data.reports_curve and policy is None
+        else general
     )
     if policy is not None:
         return _policy_estimates(
@@ -5002,8 +5021,9 @@ def _estimates(
         contributors[name] = (fit,)
         level = scaler.unscale_level(fit.psi_scaled)
         bounds = parameter_bounds("mean", data.family)
+        own_level = arm_general if _static_arm(fit.regimen) is not None else general
         status = bounded_status(
-            _parameter_status(general, fit, supplemented=supplemented), level, bounds
+            _parameter_status(own_level, fit, supplemented=supplemented), level, bounds
         )
         estimates[name] = make_estimate(
             name,
@@ -8338,14 +8358,12 @@ class _SequentialEstimator:
                 )
         parametric = self._simulated_parametric(parametric, fits)
         status = self._draw_status(prepared, folds, parametric, mechanism)
-        measured = measured_design(
-            prepared,
-            longitudinal_floor_family(
-                self._estimator,
-                cross_fitted=not folds.is_single,
-                repeated=getattr(self, "repeats", 1) != 1,
-            ),
+        floor_family = longitudinal_floor_family(
+            self._estimator,
+            cross_fitted=not folds.is_single,
+            repeated=getattr(self, "repeats", 1) != 1,
         )
+        measured = measured_design(prepared, floor_family)
         unprojected_fits = fits
         moves: tuple[tuple[str, str | None, int, float, float], ...] = ()
         if self.isotonic:
@@ -8369,6 +8387,7 @@ class _SequentialEstimator:
                     policy=policy,
                     boundary_reach=boundary_reach,
                     measured=measured,
+                    family=floor_family,
                 )
                 if model is None
                 else _msm_estimates(
@@ -8392,6 +8411,7 @@ class _SequentialEstimator:
                     classification=classification,
                     boundary_reach=boundary_reach,
                     measured=measured,
+                    family=floor_family,
                 ).estimates
                 if moves
                 else None
@@ -12238,6 +12258,11 @@ def _refit_bound(
     # The fit reports the projected levels, so the replay projects them too.
     if recipe.isotonic:
         fits, _ = _project_fits(fits)
+    replay_family = longitudinal_floor_family(
+        recipe.estimator,
+        cross_fitted=not draw.folds.is_single,
+        repeated=result.config.repeats != 1,
+    )
     # The status the fit stamped, recomputed from the same data and folds, so the replay at
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.
     status = _trimmed_status(
@@ -12262,14 +12287,8 @@ def _refit_bound(
             alpha_sig=result.config.alpha_sig,
             inference=status,
             boundary_reach=recipe.boundary_reach,
-            measured=measured_design(
-                result.data,
-                longitudinal_floor_family(
-                    recipe.estimator,
-                    cross_fitted=not draw.folds.is_single,
-                    repeated=result.config.repeats != 1,
-                ),
-            ),
+            measured=measured_design(result.data, replay_family),
+            family=replay_family,
             policy=(
                 _policy_matrix(
                     result.data,

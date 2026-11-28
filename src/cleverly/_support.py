@@ -1152,16 +1152,34 @@ def point_interval_floor(estimator: Any, data: Any) -> int:
         The floor of the fit's floor family, or
         :data:`~cleverly._inference_status.DEFAULT_POINT_INTERVAL_CLUSTERS`.
     """
+    return cluster_interval_floor(point_fit_floor_family(estimator, data), longitudinal=False)
+
+
+def point_fit_floor_family(estimator: Any, data: Any) -> str | None:
+    """The floor family of a point-treatment fit, read from its configuration before any learner.
+
+    Parameters
+    ----------
+    estimator : TMLE
+        The estimator, as constructed.
+    data : CausalData
+        The prepared data.
+
+    Returns
+    -------
+    str or None
+        A key of :data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS`, or ``None`` for a
+        configuration no floor study measured.
+    """
     method = str(getattr(estimator, "_assessment_method", type(estimator).__name__))
     foldwise = getattr(estimator, "_foldwise", None)
-    family = point_floor_family(
+    return point_floor_family(
         method,
         point_scheme(estimator),
         repeated=getattr(estimator, "repeats", 1) != 1,
         known_mechanism=divides_by_declaration(data),
         foldwise=bool(foldwise()) if callable(foldwise) else False,
     )
-    return cluster_interval_floor(family, longitudinal=False)
 
 
 def point_key(

@@ -755,18 +755,21 @@ def unmeasured_estimand_status(
     weights: FloatArray | None = None,
     *,
     longitudinal: bool = False,
+    floor: int | None = None,
 ) -> InferenceStatus:
-    """The status of an estimate that no floor study measured, from its fit's status.
+    """The status of an estimate other than its family's measured contrast, from its fit's status.
 
     A floor family's floor (:data:`~cleverly._inference_status.CLUSTER_INTERVAL_FLOORS`) holds
     for the one contrast its study measured at every count
-    (:data:`~cleverly._inference_status.MEASURED_CONTRASTS`). Every other estimate of the fit keeps
-    the default floor of its kind. When the fit's status is ``"influence_curve"`` and the fit
-    reads fewer positive-mass clusters than that floor, in total or in one baseline stratum, such
-    an estimate takes the parameter status
+    (:data:`~cleverly._inference_status.MEASURED_CONTRASTS`). A family's two arm means keep the
+    arm-mean floor their own study measured
+    (:data:`~cleverly._inference_status.ARM_MEAN_INTERVAL_FLOORS`), which the caller passes as
+    ``floor``; every other estimate of the fit keeps the default floor of its kind. When the fit's
+    status is ``"influence_curve"`` and the fit reads fewer positive-mass clusters than that
+    floor, in total or in one baseline stratum, such an estimate takes the parameter status
     :data:`~cleverly._inference_status.FEW_CLUSTER_ESTIMAND_STATUS`, which shows its interval under
     the experimental label. Any other fit status stands: a labelled or withheld fit status already
-    says more. On a fit whose floor is the default this returns ``status`` unchanged.
+    says more. At or above the floor this returns ``status`` unchanged.
 
     Parameters
     ----------
@@ -780,6 +783,9 @@ def unmeasured_estimand_status(
         The observation weight of each row, or ``None`` for an unweighted fit.
     longitudinal : bool, default False
         Whether the fit is longitudinal, which picks the default floor.
+    floor : int or None, default None
+        The estimate's floor (:func:`~cleverly._inference_status.estimand_interval_floor`).
+        ``None`` reads the default floor of the fit's kind.
 
     Returns
     -------
@@ -799,9 +805,12 @@ def unmeasured_estimand_status(
     """
     if cluster is None or status != "influence_curve":
         return status
-    floor = (
-        DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS if longitudinal else DEFAULT_POINT_INTERVAL_CLUSTERS
-    )
+    if floor is None:
+        floor = (
+            DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS
+            if longitudinal
+            else DEFAULT_POINT_INTERVAL_CLUSTERS
+        )
     default = cluster_inference_status(cluster, strata=strata, weights=weights, minimum=floor)
     return FEW_CLUSTER_ESTIMAND_STATUS if default == "few_cluster_plugin" else status
 

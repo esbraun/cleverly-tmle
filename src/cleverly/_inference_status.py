@@ -29,6 +29,8 @@ from ._refusal import NO_ALTERNATIVE, RefusalReason
 __all__ = [
     "ADAPTIVE_BASELINE_STATUS",
     "ADAPTIVE_MEASURED_CLUSTERS",
+    "ARM_MEAN_INTERVAL_FLOORS",
+    "ARM_MEAN_POINT_ESTIMANDS",
     "BOUNDARY_NODE_BAND_NOTE",
     "BOUNDARY_NODE_OUT_OF_REACH",
     "CLUSTER_INTERVAL_FLOORS",
@@ -181,6 +183,20 @@ CLUSTER_INTERVAL_FLOORS: Final[Mapping[str, int]] = MappingProxyType(
     }
 )
 
+#: The point-treatment arm means whose floor :data:`ARM_MEAN_INTERVAL_FLOORS` holds.
+ARM_MEAN_POINT_ESTIMANDS: Final[frozenset[str]] = frozenset({"ey0", "ey1"})
+
+#: The smallest positive-mass cluster count from which each measured fit family reports the
+#: intervals of its two arm means without the few-cluster label: ``ey0`` and ``ey1`` of a point
+#: family, and the means of the always-treat and never-treat static plans of an ``LTMLE`` family
+#: on its measured design (:data:`MEASURED_LONGITUDINAL_DESIGNS`). The floor is the smallest count
+#: from which every registered count of ``few-cluster-arm-means`` or
+#: ``few-cluster-arm-means-cross-fitted-ltmle`` passes for both arms (X54 part (k)); it can lie
+#: below the default floor of its kind, or above it where a cell at the default failed. A family
+#: without an entry keeps the default floor for its arm means
+#: (:func:`estimand_interval_floor`).
+ARM_MEAN_INTERVAL_FLOORS: Final[Mapping[str, int]] = MappingProxyType({})
+
 #: The point-treatment estimand a point floor family's study measured at every count: the ATE.
 MEASURED_POINT_ESTIMAND: Final[str] = "ate"
 
@@ -315,15 +331,52 @@ def cluster_interval_floor(family: str | None, *, longitudinal: bool) -> int:
     )
 
 
+def estimand_interval_floor(family: str | None, *, arm_mean: bool, longitudinal: bool) -> int:
+    """The interval floor of an estimate other than its family's measured contrast.
+
+    Parameters
+    ----------
+    family : str or None
+        A key of :data:`CLUSTER_INTERVAL_FLOORS`, or ``None`` for an unmeasured configuration.
+    arm_mean : bool
+        Whether the estimate is one of the family's two measured arm means
+        (:data:`ARM_MEAN_INTERVAL_FLOORS`).
+    longitudinal : bool
+        Whether the fit is longitudinal, which picks the default floor.
+
+    Returns
+    -------
+    int
+        The family's arm-mean floor for an arm mean with an entry, else the default floor of the
+        fit's kind.
+
+    Examples
+    --------
+    >>> from cleverly._inference_status import (
+    ...     DEFAULT_POINT_INTERVAL_CLUSTERS,
+    ...     estimand_interval_floor,
+    ... )
+    >>> floor = estimand_interval_floor("tmle_in_sample", arm_mean=False, longitudinal=False)
+    >>> floor == DEFAULT_POINT_INTERVAL_CLUSTERS
+    True
+    """
+    if arm_mean and family is not None and family in ARM_MEAN_INTERVAL_FLOORS:
+        return ARM_MEAN_INTERVAL_FLOORS[family]
+    return (
+        DEFAULT_LONGITUDINAL_INTERVAL_CLUSTERS if longitudinal else DEFAULT_POINT_INTERVAL_CLUSTERS
+    )
+
+
 def floor_table() -> str:
     """The interval floors by fit and estimate, as one clause a status text prints.
 
     Returns
     -------
     str
-        Each family's plain name and floor with the contrast it holds for, then the default
-        floors of every other estimate: those of the measured families and those of every other
-        point-treatment and longitudinal fit.
+        Each family's plain name and floor with the contrast it holds for, its arm-mean floor
+        where one differs from the default, then the default floors of every other estimate:
+        those of the measured families and those of every other point-treatment and
+        longitudinal fit.
     """
     parts = []
     for name, floor in CLUSTER_INTERVAL_FLOORS.items():
@@ -335,6 +388,9 @@ def floor_table() -> str:
         )
         held = "" if floor == default else f" for {MEASURED_CONTRASTS[name]}"
         parts.append(f"{FLOOR_FAMILY_NAMES[name]} {floor}{held}")
+        arms = ARM_MEAN_INTERVAL_FLOORS.get(name)
+        if arms is not None and arms != default:
+            parts.append(f"{FLOOR_FAMILY_NAMES[name]} {arms} for its two arm means")
     parts.append(
         "every other estimate of a point-treatment fit, and every other point-treatment fit, "
         f"{DEFAULT_POINT_INTERVAL_CLUSTERS}"
