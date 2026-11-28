@@ -999,9 +999,9 @@ def run_pilot(raw: Path, *, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 
 def run_pilot_extension(raw: Path, *, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    """The pilot extension (design rev 3, 9a): 4,000 fresh draws of the calibration law.
+    """The pilot extension (design rev 3, 9a): fresh draws of the calibration law.
 
-    Replicates 800 to 4,799, on the extension's stream, leaving out the pilot's 800, so every
+    Replicates 800 onward, on the extension's stream, leaving out the pilot's 800, so every
     reading covers :data:`~tests.studies.variable_importance.PILOT_EXTENSION_REPLICATES` draws.
     Checkpointed under ``raw``; writes
     :data:`~tests.studies.variable_importance.PILOT_EXTENSION_PATH`.

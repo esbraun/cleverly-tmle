@@ -137,7 +137,10 @@ MAXIMUM_REPLICATES = 8_000
 #: law, replicates :data:`PILOT_REPLICATES` onward on their own stream, so each calibration
 #: arm is read on at least 3,000 draws (``guide/studies.md``, "Coverage readings") before the
 #: predictive rule sizes it. It leaves out the pilot's 800, which triggered it (review S3).
-PILOT_EXTENSION_REPLICATES = 4_000
+#: Rev 3.1: 8,000. The first 4,000 read cross-fitted X5 at an SE ratio of 1.040, and at that
+#: reading's own uncertainty no R up to 20,000 sized the family; replicates 800 to 4,799 are
+#: the first extension's draws, refitted identically.
+PILOT_EXTENSION_REPLICATES = 8_000
 #: The extension's own stream.
 PILOT_EXTENSION_STREAM = "variable-importance/pilot-extension"
 PILOT_EXTENSION_PATH = ROOT / "tests" / "studies" / "variable_importance_pilot_extension.csv"
